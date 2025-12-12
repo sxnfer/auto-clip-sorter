@@ -1,10 +1,10 @@
 # Auto Clip Sorter 🎬
 
-Yo! Welcome to the **Auto Clip Sorter**. This is a chill little OBS script that helps you keep your replays organized without you having to lift a finger.
+Welcome to the **Auto Clip Sorter**. This is a chill little OBS script that helps you keep your replays organized without you having to lift a finger.
 
 ## What's this?
 
-Basically, if you're tired of having all your clips dumped into one giant folder, this script is for you. It watches what game or window you're capturing and automatically sorts your saved replays into folders named after that game.
+If you're tired of having all your clips dumped into one giant folder this script is for you. It watches what game or window you're capturing and automatically sorts your saved replays into folders named after that game.
 
 **Features:**
 *   **Smart Sorting:** Detects the game name (from the window title or executable) and creates a folder for it.
