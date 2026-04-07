@@ -1,25 +1,19 @@
-# Auto Clip Sorter 🎬
+# Auto Clip Sorter
 
-Welcome to the **Auto Clip Sorter**. This is a chill little OBS script that helps you keep your replays organized without you having to lift a finger.
+An OBS script that automatically organizes replay buffer saves into per-game folders based on the active capture source.
 
-## What's this?
+## Features
 
-If you're tired of having all your clips dumped into one giant folder this script is for you. It watches what game or window you're capturing and automatically sorts your saved replays into folders named after that game.
+- **Smart sorting** — detects the game name from the window title or executable and routes replays to a matching folder.
+- **Event-driven** — responds to OBS signals rather than polling, keeping CPU usage minimal.
+- **Auto replay buffer** — optionally starts and stops the Replay Buffer when a game session begins or ends.
 
-**Features:**
-*   **Smart Sorting:** Detects the game name (from the window title or executable) and creates a folder for it.
-*   **Event-Driven:** No constant polling that eats up your CPU. It waits for OBS to tell it something happened.
-*   **Auto Replay Buffer:** Can automatically turn on the Replay Buffer when you launch a game and turn it off when you quit. (Optional, but super handy).
+## Setup
 
-## How to use
-
-1.  Drop `rb_event_driven.py` into your OBS scripts folder.
-2.  In OBS, go to **Tools -> Scripts**.
-3.  Click the **+** button and select `rb_event_driven.py`.
-4.  **Configure it:**
-    *   **Source to monitor:** Pick your Game Capture or Window Capture source.
-    *   **Prefer capture hook signals:** Keeps things accurate by waiting for the hook.
-    *   **Organize clips:** Check this to enable the folder sorting magic.
-    *   **Base output path:** Where you want your sorted folders to live.
-
-That's it! Now go clip some crazy moments and let the script handle the cleanup. 🚀
+1. In OBS, go to **Tools → Scripts** and click **+**.
+2. Select `rb_event_driven.py`.
+3. Configure the script:
+   - **Source to monitor** — select your Game Capture or Window Capture source.
+   - **Prefer capture hook signals** — improves accuracy by waiting for the hook signal.
+   - **Organize clips** — enables folder sorting.
+   - **Base output path** — root directory where per-game folders will be created.
