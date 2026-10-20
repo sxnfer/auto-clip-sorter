@@ -55,7 +55,9 @@ bool is_device_name(const std::string &name)
 
 void trim(std::string &s)
 {
-	auto strip = [](char c) { return c == ' ' || c == '.'; };
+	auto strip = [](char c) {
+		return c == ' ' || c == '.';
+	};
 	while (!s.empty() && strip(s.back()))
 		s.pop_back();
 	size_t start = 0;

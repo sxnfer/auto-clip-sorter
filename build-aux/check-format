@@ -1,0 +1,164 @@
+#!/usr/bin/env bash
+#
+# Checks the formatting of every git-tracked C/C++ and CMake file. The whole repo is
+# checked, not just the files a change touches, so a formatting problem can't hide in
+# code that nobody edited recently.
+#
+#   build-aux/check-format         report files that need formatting, exit 1 if any
+#   build-aux/check-format --fix   rewrite those files in place
+#
+# Exit status: 0 when every file is formatted (or was fixed), 1 when a file needs
+# formatting or a formatter could not process it, 2 when a tool is missing or has the
+# wrong version, or the arguments are invalid.
+#
+# The formatter versions are pinned because their output changes between releases, and
+# a local run must give the same answer as CI. clang-format must be 19.x. Set
+# CLANG_FORMAT to choose the binary. gersemi must be 0.21.x.
+set -euo pipefail
+
+usage() {
+  echo "Usage: build-aux/check-format [--fix]"
+}
+
+die() {
+  echo "check-format: $*" >&2
+  exit 2
+}
+
+fix=false
+case "${1:-}" in
+  "") ;;
+  --fix) fix=true ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac
+if (( $# > 1 )); then
+  usage >&2
+  exit 2
+fi
+
+repo_root="$(git rev-parse --show-toplevel 2> /dev/null)" || die "not inside a git work tree."
+cd "${repo_root}"
+
+clang_format=""
+resolve_clang_format() {
+  local bin="${CLANG_FORMAT:-}"
+  if [[ -z "${bin}" ]]; then
+    if command -v clang-format-19 > /dev/null 2>&1; then
+      bin=clang-format-19
+    else
+      bin=clang-format
+    fi
+  fi
+  command -v "${bin}" > /dev/null 2>&1 \
+    || die "clang-format not found ('${bin}'). Install clang-format-19 or set CLANG_FORMAT."
+
+  local version_output
+  version_output="$("${bin}" --version)" || die "'${bin} --version' failed."
+  [[ "${version_output}" =~ version[[:space:]]+([0-9]+)\. ]] \
+    || die "cannot read the version of '${bin}'."
+  if [[ "${BASH_REMATCH[1]}" != 19 ]]; then
+    die "'${bin}' is clang-format ${BASH_REMATCH[1]}, but this repo needs 19." \
+      "Install clang-format-19 or set CLANG_FORMAT."
+  fi
+  clang_format="${bin}"
+}
+
+resolve_gersemi() {
+  command -v gersemi > /dev/null 2>&1 \
+    || die "gersemi not found. Install it with: pipx install gersemi==0.21.0"
+
+  local version_output
+  version_output="$(gersemi --version)" || die "'gersemi --version' failed."
+  [[ "${version_output}" =~ ([0-9]+)\.([0-9]+)\.[0-9]+ ]] \
+    || die "cannot read the gersemi version."
+  if [[ "${BASH_REMATCH[1]}.${BASH_REMATCH[2]}" != "0.21" ]]; then
+    die "gersemi is ${BASH_REMATCH[0]}, but this repo needs 0.21.x." \
+      "Install it with: pipx install gersemi==0.21.0"
+  fi
+}
+
+# Prints the file, and its diff, when it needs formatting. With --fix, rewrites it.
+# Returns 1 when the file still needs formatting or could not be processed.
+check_cpp() {
+  local file="$1"
+  if "${clang_format}" --style=file --fallback-style=none --dry-run --Werror "${file}" > /dev/null 2>&1; then
+    return 0
+  fi
+  if [[ "${fix}" == true ]]; then
+    "${clang_format}" --style=file --fallback-style=none -i "${file}" || die "clang-format failed on ${file}."
+    echo "formatted: ${file}"
+    return 0
+  fi
+  echo "needs formatting: ${file}"
+  "${clang_format}" --style=file --fallback-style=none "${file}" \
+    | diff -u --label "${file}" "${file}" --label "${file} (clang-format)" - || true
+  return 1
+}
+
+# gersemi exits 1 when a file would change and with another status when it cannot
+# parse the file. Only the first is a formatting problem, so the other is reported
+# as a failure with gersemi's own message.
+check_cmake() {
+  local file="$1" output status=0
+  output="$(gersemi --check --no-cache "${file}" 2>&1)" || status=$?
+  if (( status == 0 )); then
+    return 0
+  fi
+  if (( status != 1 )); then
+    echo "gersemi could not process: ${file}"
+    echo "${output}"
+    return 1
+  fi
+  if [[ "${fix}" == true ]]; then
+    gersemi --no-cache -i "${file}" || die "gersemi failed on ${file}."
+    echo "formatted: ${file}"
+    return 0
+  fi
+  echo "needs formatting: ${file}"
+  gersemi --check --no-cache --diff "${file}" 2>&1 | grep -v "would be reformatted" || true
+  return 1
+}
+
+# The pathspec excludes legacy/, the deprecated Python script that must not be touched.
+mapfile -d '' -t cpp_files < <(git ls-files -z -- '*.c' '*.h' '*.cpp' '*.hpp' ':!legacy/')
+mapfile -d '' -t cmake_files < <(git ls-files -z -- 'CMakeLists.txt' '*/CMakeLists.txt' '*.cmake')
+
+if (( ${#cpp_files[@]} == 0 && ${#cmake_files[@]} == 0 )); then
+  echo "check-format: no tracked C/C++ or CMake files, nothing to check."
+  exit 0
+fi
+
+failed=0
+
+if (( ${#cpp_files[@]} )); then
+  resolve_clang_format
+  for file in "${cpp_files[@]}"; do
+    check_cpp "${file}" || failed=$(( failed + 1 ))
+  done
+fi
+
+if (( ${#cmake_files[@]} )); then
+  resolve_gersemi
+  for file in "${cmake_files[@]}"; do
+    check_cmake "${file}" || failed=$(( failed + 1 ))
+  done
+fi
+
+if (( failed )); then
+  if [[ "${fix}" == true ]]; then
+    echo "check-format: ${failed} file(s) could not be formatted (see above)." >&2
+  else
+    echo "check-format: ${failed} file(s) failed (see above)." >&2
+    echo "check-format: run build-aux/check-format --fix to format the ones that need it." >&2
+  fi
+  exit 1
+fi
+
+echo "check-format: all ${#cpp_files[@]} C/C++ and ${#cmake_files[@]} CMake files are formatted."

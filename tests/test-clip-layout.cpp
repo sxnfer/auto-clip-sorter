@@ -89,7 +89,9 @@ TEST_CASE("destination_dir routes unknown games to the unsorted folder")
 TEST_CASE("unique_destination numbers collisions Windows-style")
 {
 	std::set<fs::path> taken;
-	auto exists = [&](const fs::path &p) { return taken.count(p) > 0; };
+	auto exists = [&](const fs::path &p) {
+		return taken.count(p) > 0;
+	};
 	fs::path dir = "clips";
 
 	CHECK(unique_destination(dir, "Replay.mkv", exists) == dir / "Replay.mkv");
@@ -103,6 +105,8 @@ TEST_CASE("unique_destination numbers collisions Windows-style")
 
 TEST_CASE("unique_destination gives up rather than looping forever")
 {
-	auto always = [](const fs::path &) { return true; };
+	auto always = [](const fs::path &) {
+		return true;
+	};
 	CHECK(unique_destination("clips", "Replay.mkv", always).empty());
 }

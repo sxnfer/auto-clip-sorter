@@ -1,0 +1,22 @@
+name: Unit Tests 🧪
+on:
+  workflow_call:
+jobs:
+  unit-tests:
+    name: Unit Tests on ${{ matrix.os }} 🧪
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure Tests ⚙️
+        run: cmake -S tests -B build/tests
+
+      - name: Build Tests 🧱
+        run: cmake --build build/tests --config Release
+
+      - name: Run Tests ✅
+        run: ctest --test-dir build/tests -C Release --output-on-failure

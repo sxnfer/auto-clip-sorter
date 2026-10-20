@@ -19,6 +19,12 @@ jobs:
     permissions:
       contents: read
 
+  unit-tests:
+    name: Unit Tests 🧪
+    uses: ./.github/workflows/unit-tests.yaml
+    permissions:
+      contents: read
+
   build-project:
     name: Build Project 🧱
     uses: ./.github/workflows/build-project.yaml

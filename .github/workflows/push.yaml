@@ -14,8 +14,13 @@ permissions:
 jobs:
   check-format:
     name: Check Formatting 🔍
-    if: github.ref_name == 'master' || github.ref_name == 'main'
     uses: ./.github/workflows/check-format.yaml
+    permissions:
+      contents: read
+
+  unit-tests:
+    name: Unit Tests 🧪
+    uses: ./.github/workflows/unit-tests.yaml
     permissions:
       contents: read
 
