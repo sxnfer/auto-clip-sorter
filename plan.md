@@ -201,7 +201,7 @@ Legend: **Grp** = parallel group within the milestone · ★ = needs a Reviewer 
 | WP1.6 | `obs/ui-thread` + `obs/settings-store` | B | 1.4 | ✅ |
 | WP1.7 | `obs/source-tracker` ★ | B | 1.2 | ⬜ |
 | WP1.8 | `obs/frontend-events` + replay sorting wiring | C | 1.1, 1.5, 1.6, 1.7 | ⬜ |
-| WP1.9 | `obs/replay-controller` | C | 1.3, 1.6, 1.7 | ⬜ |
+| WP1.9 | `obs/replay-controller` | C | 1.3, 1.6, 1.7 | ✅ |
 | WP1.10 | Minimal settings dialog (General page) | C | 1.6 | ✅ |
 
 - **WP1.1 name-resolver.** Resolves a game name from `{executable, window title,
@@ -439,3 +439,4 @@ Legend: **Grp** = parallel group within the milestone · ★ = needs a Reviewer 
 | 2026-10-20 | `sanitize_folder_name` puts the device-name `_` on the stem (`COM1_.exe`), not at the end: Windows reserves `COM1.<anything>`, and the old form also grew by one `_` per save (found by WP1.4) | Orchestrator |
 | 2026-10-20 | `run_on_ui()` runs synchronously when called on the UI thread: OBS 31's UI task handler uses `Qt::AutoConnection` (found by WP1.6); the header now says so and UI-thread callers must not rely on deferral | Orchestrator |
 | 2026-10-20 | file-mover (★ review): the only copy is never deleted (a partial is kept if the source vanishes mid-copy), the source is re-verified before deletion, any non-absent destination counts as taken, and cleanup/removal have their own 5 s budgets. Deferred: a no-replace publish primitive on Windows (`MoveFileW` without the replace flag via an injected FileOps); the residual race is microseconds and only our worker writes to clip folders | Orchestrator |
+| 2026-10-20 | The Replay Buffer controller starts on `OBS_FRONTEND_EVENT_FINISHED_LOADING`: OBS 31 loads modules before `ResetOutputs()`, so `obs_frontend_get_replay_buffer_output()` during module load would dereference a null output handler (found via WP1.9) | Orchestrator |
