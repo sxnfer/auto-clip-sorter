@@ -58,8 +58,10 @@ public:
 
 	// Registers the frontend event callback (obs_frontend_add_event_callback).
 	void start(const Settings &settings);
-	// Removes it and cancels any pending re-check. Never stops the Replay
-	// Buffer itself. Idempotent.
+	// Cancels any pending re-check and makes the frontend callback inert (it is
+	// never removed: see replay-controller.cpp). Never stops the Replay Buffer
+	// itself. Idempotent. Destroy the controller only after OBS has dropped
+	// frontend callbacks (obs_module_unload), never during an event dispatch.
 	void stop();
 
 	void apply_settings(const Settings &settings);

@@ -194,8 +194,11 @@ void ReplayController::Impl::stop()
 		return;
 
 	// Never stops the buffer. A buffer we started keeps running and is then the user's to stop.
+	// The frontend callback is left registered and goes inert (handle_event checks `closed`): OBS
+	// dispatches events with an index loop, so removing a callback during EXIT would make another
+	// callback run twice or be skipped. OBS drops every callback right after EXIT anyway. The owner
+	// must keep this object alive until obs_module_unload(), after that point.
 	registered = false;
-	obs_frontend_remove_event_callback(&Impl::on_frontend_event, this);
 	obs_log(LOG_INFO, "Replay Buffer control off; the Replay Buffer keeps running as it is");
 }
 
