@@ -73,8 +73,11 @@ public:
 	// start counts as zero time, never negative.
 	void game_changed(const ClipGame &current_game, SteadyClock::time_point now);
 
-	// The recording stopped. Closes the running segment at `now`, adds
-	// `last_file` (if not empty and not already present), and ends the session.
+	// The recording stopped. Closes the running segment at `now` and ends the
+	// session. `last_file` (OBS's last recording path) is added only when the
+	// session has no files yet: the session's own list (first file + every
+	// file_changed) is complete, while OBS's path can be overwritten by an
+	// unrelated output (OBS 31's multitrack stream dump also sets it).
 	//   - use_dominant false: game = the session's start_game.
 	//   - use_dominant true: game = the game with the largest total time; on a
 	//     tie, the one first current earliest in the recording. Its name is the

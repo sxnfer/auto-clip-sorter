@@ -39,7 +39,8 @@
 //   on_game_changed(): tracker.game_changed(clip_game_for(state.current()), now).
 //   RECORDING_STOPPED:
 //     - disconnect "file_changed" and release the output.
-//     - last = obs_frontend_get_last_recording().
+//     - last = obs_frontend_get_last_recording() (the tracker uses it only if
+//       the session has no file, or when STOPPED arrives without STARTED).
 //     - finished = tracker.stop(last, settings.recording_dominant_game,
 //       clip_game_for(state.game_for_save(now)), now).
 //     - Skip (log at INFO) unless sorting_enabled(settings, ClipKind::recording).
