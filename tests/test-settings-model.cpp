@@ -510,9 +510,7 @@ TEST_CASE("validated is idempotent")
 	CHECK(validated(once) == once);
 	CHECK(validated(validated(messy)) == once);
 
-	// Not covered: a device name followed by an extension, such as "COM1.exe". sanitize_folder_name()
-	// appends an underscore each time it runs on one, so those names never settle (see the handover note).
-	for (const char *name : {"CON", "a:b", "", "  x. ", "???", "Unsorted"}) {
+	for (const char *name : {"CON", "COM1.exe", "CON.txt", "a:b", "", "  x. ", "???", "Unsorted"}) {
 		Settings s;
 		s.unsorted_folder = name;
 		const Settings v = validated(s);

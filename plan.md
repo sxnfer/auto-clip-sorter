@@ -436,3 +436,4 @@ Legend: **Grp** = parallel group within the milestone · ★ = needs a Reviewer 
 | 2026-10-20 | file-mover never deletes a source without a same-size copy; if the source can't be deleted after copying, the result is `copied_source_kept` (a duplicate, never a loss) | Orchestrator |
 | 2026-10-20 | Auto Replay Buffer reacts only to real game hooks (not show/activate), matching the script closely enough for now | User |
 | 2026-10-20 | Optional save sound added as WP2.5: Windows playback, off by default, no device routing, and the Desktop Audio capture caveat is documented rather than worked around | User |
+| 2026-10-20 | `sanitize_folder_name` puts the device-name `_` on the stem (`COM1_.exe`), not at the end: Windows reserves `COM1.<anything>`, and the old form also grew by one `_` per save (found by WP1.4) | Orchestrator |
