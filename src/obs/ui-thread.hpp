@@ -12,10 +12,13 @@
 
 namespace clip_atlas {
 
-// Runs `fn` on the UI thread later, never synchronously, even when called on
-// the UI thread. Safe from any thread. An exception thrown by `fn` is caught
-// and logged. After ui_tasks_shutdown() new and still-queued tasks are
-// dropped without running.
+// Runs `fn` on the UI thread. Called from another thread, it is queued and
+// runs later. Called on the UI thread, it runs before run_on_ui() returns:
+// OBS's UI task handler uses Qt::AutoConnection, which calls directly on the
+// same thread. Callers on the UI thread must not rely on it being deferred.
+// Safe from any thread. An exception thrown by `fn` is caught and logged.
+// After ui_tasks_shutdown() new and still-queued tasks are dropped without
+// running.
 void run_on_ui(std::function<void()> fn);
 
 // True on OBS's UI thread.
