@@ -20,6 +20,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <obs-module.h>
 #include <plugin-support.h>
 
+#include "clip-filer.hpp"
+#include "clip-routing.hpp"
 #include "file-mover.hpp"
 #include "frontend-events.hpp"
 #include "game-state.hpp"
@@ -28,12 +30,17 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "settings-dialog.hpp"
 #include "settings-model.hpp"
 #include "settings-store.hpp"
+#include "sound-player.hpp"
 #include "source-tracker.hpp"
 #include "ui-thread.hpp"
 
 #include <QWidget>
 
+#include <algorithm>
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <deque>
 #include <exception>
 #include <memory>
 #include <string>
@@ -73,6 +80,11 @@ bool g_exit_seen = false;
 
 // Set once start_replay_control() has started the Replay Buffer controller.
 bool g_replay_started = false;
+
+// The save ids whose save sound has played, newest last. The files of one save are reported close together, so the
+// last kRememberedSaves ids are enough to recognise a second file of the same save. UI thread only.
+constexpr std::size_t kRememberedSaves = 32;
+std::deque<std::uint64_t> g_played_saves;
 
 // The user's game rules as the resolver's map. frontend-events.cpp builds the same map from Settings.
 UserGameRules user_rules(const std::vector<GameRuleSetting> &rules)
@@ -154,6 +166,7 @@ void stop_all()
 	g_stopped = true;
 	try {
 		ui_tasks_shutdown();
+		sound_player().shutdown();
 		close_settings_dialog();
 		if (PluginContext *ctx = g_context.get()) {
 			settings_store().unsubscribe(ctx->settings_listener);
@@ -209,6 +222,44 @@ void start_replay_control()
 		folder.empty() ? "none (replays are left where OBS saves them)" : folder.c_str());
 }
 
+// True the first time `save_id` is seen. Only the last kRememberedSaves ids are kept. Id 0 means the producer set none,
+// so it can't be matched against anything and always counts as new.
+bool is_new_save(std::uint64_t save_id)
+{
+	if (save_id == 0)
+		return true;
+	if (std::find(g_played_saves.begin(), g_played_saves.end(), save_id) != g_played_saves.end())
+		return false;
+	g_played_saves.push_back(save_id);
+	while (g_played_saves.size() > kRememberedSaves)
+		g_played_saves.pop_front();
+	return true;
+}
+
+// The filing code calls this on the UI thread, once for each file it has filed. A remuxed replay gives two files with
+// the same save_id, and the sound must play once for the save. plays_save_sound() decides whether a file counts: it
+// must be a replay that was moved or copied into its folder, with the sound switched on. The id is remembered only
+// when the sound would play, so a file that was skipped never blocks its save's sound.
+void on_clip_sorted(const ClipSorted &clip)
+{
+	try {
+		if (g_stopped)
+			return;
+		const bool filed = clip.status == MoveStatus::moved || clip.status == MoveStatus::copied_source_kept;
+		const Settings settings = settings_store().get();
+		if (!plays_save_sound(settings, clip.kind, filed) || !is_new_save(clip.save_id))
+			return;
+		sound_player().play(settings.save_sound_path, settings.save_sound_volume, [](const std::string &error) {
+			if (!error.empty())
+				obs_log(LOG_WARNING, "save sound did not play: %s", error.c_str());
+		});
+	} catch (const std::exception &e) {
+		obs_log(LOG_ERROR, "save sound failed: %s", e.what());
+	} catch (...) {
+		obs_log(LOG_ERROR, "save sound failed: unknown exception");
+	}
+}
+
 // Plugin-level frontend callback, registered by obs_module_load() and never removed. It handles two events:
 //   - OBS_FRONTEND_EVENT_FINISHED_LOADING: OBS has created its outputs and scene collection, so the Replay Buffer
 //     controller starts here. Module load is too early, because the controller asks OBS for the replay buffer output.
@@ -248,6 +299,7 @@ void start_plugin()
 	ctx.events = std::make_unique<FrontendEvents>(ctx.state, settings_store(), ctx.mover);
 
 	ctx.tracker->start(settings);
+	ctx.events->set_clip_sorted_callback(on_clip_sorted);
 	ctx.events->start();
 
 	ctx.settings_listener =
