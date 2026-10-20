@@ -61,7 +61,9 @@ public:
 	// Liveness is tracked even while the source is not hooked, so a later
 	// hook knows whether it is live.
 	bool source_live(const std::string &source_id, bool live, SteadyClock::time_point now);
-	// Source was destroyed or stopped being tracked. Forgets it entirely.
+	// Source was destroyed or stopped being tracked. Forgets its entry (hook and
+	// liveness). A game that already went away stays the last-seen game, so a save
+	// in the grace period after its source was deleted still finds it.
 	bool source_removed(const std::string &source_id, SteadyClock::time_point now);
 	// Forgets every source, e.g. when the scene collection changes. The
 	// current game, if any, becomes the last-seen game.
