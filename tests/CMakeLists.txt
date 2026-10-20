@@ -16,7 +16,11 @@ FetchContent_MakeAvailable(Catch2)
 
 set(CORE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../src/core")
 
-add_executable(clip_atlas_tests test-clip-layout.cpp "${CORE_DIR}/clip-layout.cpp")
+# Globbed so parallel work packages never need to edit this file.
+file(GLOB CORE_SOURCES CONFIGURE_DEPENDS "${CORE_DIR}/*.cpp")
+file(GLOB TEST_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/test-*.cpp")
+
+add_executable(clip_atlas_tests ${TEST_SOURCES} ${CORE_SOURCES})
 target_include_directories(clip_atlas_tests PRIVATE "${CORE_DIR}")
 target_link_libraries(clip_atlas_tests PRIVATE Catch2::Catch2WithMain)
 if(MSVC)
