@@ -31,6 +31,7 @@
 class QCheckBox;
 class QDialogButtonBox;
 class QLineEdit;
+class QSlider;
 class QSpinBox;
 
 namespace clip_atlas {
@@ -55,15 +56,24 @@ public:
 
 private:
 	void browse_clips_folder();
+	void browse_save_sound();
+	void test_save_sound();
 	void load(const Settings &settings);
 
 	SettingsStore &store_;
 	QLineEdit *clips_folder_ = nullptr;
 	QCheckBox *monthly_folders_ = nullptr;
 	QLineEdit *unsorted_folder_ = nullptr;
+	QCheckBox *sort_replays_ = nullptr;
+	QCheckBox *sort_recordings_ = nullptr;
+	QCheckBox *sort_screenshots_ = nullptr;
+	QCheckBox *recording_dominant_game_ = nullptr;
 	QCheckBox *replay_auto_start_ = nullptr;
 	QCheckBox *replay_auto_stop_ = nullptr;
 	QSpinBox *grace_period_ = nullptr;
+	QCheckBox *play_save_sound_ = nullptr;
+	QLineEdit *save_sound_path_ = nullptr;
+	QSlider *save_sound_volume_ = nullptr;
 	QDialogButtonBox *buttons_ = nullptr;
 };
 

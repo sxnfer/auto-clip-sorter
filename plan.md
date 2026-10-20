@@ -296,7 +296,7 @@ Legend: **Grp** = parallel group within the milestone · ★ = needs a Reviewer 
 | WP2.1 | `core/recording-tracker` ★ | A | 2.0 | ⬜ |
 | WP2.2 | Recording glue: `obs/recording-events` + wiring (stop, remux, split) ★ | B | 2.1, 2.3, 2.5 | ⬜ |
 | WP2.3 | `obs/clip-filer` + screenshot sorting in `obs/frontend-events` | A | 2.0 | ⬜ |
-| WP2.4 | General page: "What to sort" and "Save sound" groups | A | 2.0 (links with 2.5) | ⬜ |
+| WP2.4 | General page: "What to sort" and "Save sound" groups | A | 2.0 (links with 2.5) | ✅ |
 | WP2.5 | Save sound: `core/wav-volume`, `platform/sound-player`, wiring | A | 2.0 | ⬜ |
 
 File ownership (no two WPs in a group share a file):
