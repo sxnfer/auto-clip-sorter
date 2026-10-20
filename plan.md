@@ -292,39 +292,60 @@ Legend: **Grp** = parallel group within the milestone · ★ = needs a Reviewer 
 
 | ID | Title | Grp | Depends | Status |
 |---|---|---|---|---|
-| WP2.0 | Interface headers for M2 | Orch | M1 | ⬜ |
+| WP2.0 | Interface headers for M2 (+ `core/clip-routing`, save-sound settings fields) | Orch | M1 | ✅ |
 | WP2.1 | `core/recording-tracker` ★ | A | 2.0 | ⬜ |
-| WP2.2 | Recording glue (stop, remux, split) ★ | B | 2.1 | ⬜ |
-| WP2.3 | Screenshot sorting | A | 2.0 | ⬜ |
-| WP2.4 | "What to sort" settings | A | 2.0 | ⬜ |
-| WP2.5 | Save sound (`platform/sound-player`, setting, Test button) | A | 2.0 | ⬜ |
+| WP2.2 | Recording glue: `obs/recording-events` + wiring (stop, remux, split) ★ | B | 2.1, 2.3, 2.5 | ⬜ |
+| WP2.3 | `obs/clip-filer` + screenshot sorting in `obs/frontend-events` | A | 2.0 | ⬜ |
+| WP2.4 | General page: "What to sort" and "Save sound" groups | A | 2.0 (links with 2.5) | ⬜ |
+| WP2.5 | Save sound: `core/wav-volume`, `platform/sound-player`, wiring | A | 2.0 | ⬜ |
 
-- **WP2.1** is pure logic for recording sessions.
-  - The game is decided when the recording **starts**. If the user enables "dominant
-    game", it's decided by the most-hooked game over the recording instead.
-  - It collects every file of a split recording, using the output's `file_changed`
-    signal.
-  - When auto-remux is on, it expects a `.mp4` with the same base name and doesn't move
-    anything until that file is stable.
-- **WP2.2** wires up `RECORDING_STARTED` and `RECORDING_STOPPED` and the recording
-  output's `file_changed` signal. It reads the profile's AutoRemux setting through
-  `obs_frontend_get_profile_config()`; the orchestrator confirms the section and key
-  against OBS 31's source in the brief. Then it queues stable-wait and move jobs.
-- **WP2.3** wires up `SCREENSHOT_TAKEN` and `obs_frontend_get_last_screenshot()`.
-- **WP2.4** adds settings toggles for replays, recordings and screenshots (all on by
-  default) and adds them to the General page.
-- **WP2.5** plays an optional sound once a clip has been saved and sorted (the `clip_sorted`
-  callback with status moved or copied, never on failure).
-  - `platform/sound-player`: `PlaySoundW(path, nullptr, SND_FILENAME | SND_ASYNC | SND_NODEFAULT)`
-    from the Win32 SDK, with a stub elsewhere. The volume is applied by scaling the samples of
-    the loaded `.wav` in memory and playing it with `SND_MEMORY`. The orchestrator confirms
-    the exact approach in the brief.
-  - Settings: `play_save_sound` (off by default), `save_sound_path` (empty means the bundled
-    `data/sounds/replay-saved.wav`) and `save_sound_volume` (0–100). The General page gets a
-    Test button and help text saying the sound can be heard in Desktop Audio captures.
-  - Blocked on the user supplying the default `.wav` with a licence that allows
-    redistribution. Until then the bundled default is left out and the feature only uses a
-    user-chosen file.
+File ownership (no two WPs in a group share a file):
+
+| WP | Owns |
+|---|---|
+| 2.1 | `src/core/recording-tracker.cpp`, `tests/test-recording-tracker.cpp` |
+| 2.2 | `src/obs/recording-events.cpp`, `src/plugin-main.cpp` (after 2.5) |
+| 2.3 | `src/obs/clip-filer.cpp`, `src/obs/frontend-events.cpp` |
+| 2.4 | `src/ui/settings-dialog.{hpp,cpp}` (the header's private members only), `data/locale/en-US.ini` |
+| 2.5 | `src/core/wav-volume.cpp`, `tests/test-wav-volume.cpp`, `src/platform/sound-player-{win,stub}.cpp`, `src/plugin-main.cpp` |
+
+- **WP2.0 (Orch)** writes `core/recording-tracker.hpp`, `core/wav-volume.hpp`,
+  `platform/sound-player.hpp`, `obs/clip-filer.hpp`, `obs/recording-events.hpp`, and
+  updates `obs/frontend-events.hpp` and the settings dialog's doc comment. It also
+  implements `core/clip-routing` (`ClipKind`, `sorting_enabled`, `ClipGame`,
+  `clip_game_for`, `plays_save_sound`) and the three save-sound settings fields, so no
+  group-A WP has to share `settings-model`. CMake links `winmm` on WIN32.
+- **WP2.1** is pure logic for recording sessions (`RecordingTracker`).
+  - The game is decided when the recording **starts** (`game_for_save`, so the grace
+    period applies). If the user enables "dominant game", it's the game current for the
+    longest total time over the recording; time with no game doesn't count, and with no
+    game at all it falls back to the start game.
+  - It collects every file of a split recording: the first from
+    `obs_frontend_get_last_recording()` at `RECORDING_STARTED`, then each `next_file`
+    of the output's `file_changed` signal. A session id keeps a late signal out of the
+    next recording.
+- **WP2.2** wires up `RECORDING_STARTED`, `RECORDING_STOPPED` and the recording
+  output's `file_changed` signal, and forwards game changes for the dominant-game clock.
+  At stop it hands every part, each with its `expected_remux_path`, to a `ClipFiler`,
+  which waits for each remuxed copy before moving the pair. The AutoRemux keys are read
+  through `read_remux_config()` (`[Video] AutoRemux`, `[Output] Mode`,
+  `[AdvOut] RecType`, `[SimpleOutput|AdvOut] RecFormat2`, confirmed against OBS 31.0).
+- **WP2.3** moves M1's replay filing (stable wait, remux wait, move, report) out of
+  `frontend-events.cpp` into a generic `ClipFiler`, keeps replays working through it,
+  and adds `SCREENSHOT_TAKEN` with `obs_frontend_get_last_screenshot()`.
+- **WP2.4** adds the "What to sort" toggles (replays, recordings, screenshots, all on by
+  default, plus the dominant-game option) and the "Save sound" group to the General page.
+- **WP2.5** plays an optional sound once a **replay** has been saved and sorted (the
+  `clip_sorted` callback with status moved or copied, never on failure; once per
+  `save_id`, so a remuxed pair plays once).
+  - `platform/sound-player`: a worker thread reads the `.wav`, `core/wav-volume`
+    scales its samples in memory, and `PlaySoundW(image, nullptr, SND_MEMORY | SND_ASYNC |
+    SND_NODEFAULT)` plays it. The stub plays nothing.
+  - Settings: `play_save_sound` (off by default), `save_sound_path` (empty means no
+    sound) and `save_sound_volume` (0–100, default 80). The General page gets a Test
+    button and help text saying the sound can be heard in Desktop Audio captures.
+  - No sound file is bundled until the user confirms the ElevenLabs WAV's licence allows
+    redistribution. Until then the feature only uses a user-chosen file.
 
 ### M3 — Clip browser dock
 
@@ -442,3 +463,10 @@ Legend: **Grp** = parallel group within the milestone · ★ = needs a Reviewer 
 | 2026-10-20 | The Replay Buffer controller starts on `OBS_FRONTEND_EVENT_FINISHED_LOADING`: OBS 31 loads modules before `ResetOutputs()`, so `obs_frontend_get_replay_buffer_output()` during module load would dereference a null output handler (found via WP1.9) | Orchestrator |
 | 2026-10-20 | Frontend callbacks are never removed, only made inert: OBS dispatches events with an index loop, so a removal during EXIT makes another plugin's callback run twice or be skipped (found by the WP1.7 ★ review). At EXIT the plugin stops everything but destroys nothing; objects are destroyed in `obs_module_unload`, after OBS has dropped all callbacks | Orchestrator |
 | 2026-10-20 | M1 accepted after the user's Windows test on OBS 32.2.2 (newer than the 31.0 build target): the plugin works on 32.x | User |
+| 2026-10-20 | WP2.0: one filing pipeline, `obs/clip-filer`, for replays, recordings and screenshots (M1's replay code made generic). `FrontendEvents` (replays + screenshots) and `RecordingEvents` each own a `ClipFiler`, so a recording's long remux wait never delays a replay | Orchestrator |
+| 2026-10-20 | `ClipKind`, `ClipGame`, the game resolution for a clip and `sorting_enabled` move to `core/clip-routing` (tested); `ClipSorted` moves to `clip-filer.hpp` and gains a `save_id` shared by every file of one save | Orchestrator |
+| 2026-10-20 | Recordings: every part of a split recording is moved when the recording stops, into one folder. The first file comes from `obs_frontend_get_last_recording()` at `RECORDING_STARTED` (OBS sets it in `StartRecording()`), the rest from `file_changed`'s `next_file`. Advanced + FFmpeg output to a URL is not a file and is not tracked | Orchestrator |
+| 2026-10-20 | Dominant game counts only time with a game current; with none it falls back to the game at start. The option is shown on the General page in M2 so it can be tested; it moves to the Detection page in M4 | Orchestrator |
+| 2026-10-20 | Remux wait timeout: 10 min for replays (as in M1), 60 min for recordings | Orchestrator |
+| 2026-10-20 | The save sound plays for replays only, once per save: it confirms a replay hotkey press. Recordings and screenshots stay silent (a one-line change in `plays_save_sound` if the user wants them) | Orchestrator |
+| 2026-10-20 | Save-sound volume gain is (volume/100)², applied to the samples of an in-memory copy played with `SND_MEMORY`; PCM 8/16/24/32-bit and float32 can be scaled, and at 100 % any WAV plays unchanged. Default volume 80 % | Orchestrator |

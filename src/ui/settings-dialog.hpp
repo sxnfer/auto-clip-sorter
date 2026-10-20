@@ -1,8 +1,22 @@
 // Clip Atlas — the settings dialog, reached from Tools → "Clip Atlas Settings…".
 //
-// M1 has one page, General: clips folder, monthly folders, unsorted folder
-// name, and the Replay Buffer auto start/stop toggles and grace period. M4
-// turns this into OBS-style sidebar pages (Detection, Replay Buffer, Games,
+// One page, General, with these groups, top to bottom:
+//   Clips (M1): clips folder + Browse, monthly folders, unsorted folder name.
+//   What to sort (M2): Replays, Recordings, Screenshots (Settings::sort_replays,
+//     sort_recordings, sort_screenshots), and "File each recording under the
+//     game played longest" (recording_dominant_game), enabled only while
+//     Recordings is checked.
+//   Replay Buffer (M1): auto start, auto stop, grace period.
+//   Save sound (M2): "Play a sound when a replay is saved" (play_save_sound);
+//     sound file field + Browse (a .wav picker); volume 0-100 %
+//     (save_sound_volume); a Test button; and one wrapped line of help text
+//     saying Windows plays the sound, so Desktop Audio captures it (it can be
+//     heard on stream and in later clips). The file, volume and Test widgets
+//     are enabled only while the checkbox is on. Test plays the file and
+//     volume shown in the dialog, even before OK, through sound_player(); an
+//     empty file field, or a failure the player reports, is shown in a
+//     message box.
+// M4 turns this into OBS-style sidebar pages (Detection, Replay Buffer, Games,
 // Advanced) without changing how it is opened.
 //
 // Follows OBS's theme: no hard-coded colours or fonts, standard widgets and

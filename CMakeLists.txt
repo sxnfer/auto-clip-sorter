@@ -37,6 +37,8 @@ endif()
 # Work packages add files under src/ and never edit this file. The globs pick new files up, and
 # CONFIGURE_DEPENDS re-runs them at build time, so no manual re-configure is needed.
 if(WIN32)
+  # platform/sound-player-win.cpp calls PlaySoundW.
+  target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE winmm)
   set(clip_atlas_platform_glob "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/*-win.cpp")
 else()
   # Non-Windows builds compile the stubs so they still build. The Win32 files never reach them.
