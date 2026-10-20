@@ -197,7 +197,7 @@ Legend: **Grp** = parallel group within the milestone · ★ = needs a Reviewer 
 | WP1.2 | `core/game-state` ★ | A | 0.4 | ✅ |
 | WP1.3 | `core/replay-policy` + `core/remux-rules` | A | 0.4 | ✅ |
 | WP1.4 | `core/settings-model` | A | 0.4 | ✅ |
-| WP1.5 | `core/file-mover` ★ | A | 0.4 | ⬜ |
+| WP1.5 | `core/file-mover` ★ | A | 0.4 | ✅ |
 | WP1.6 | `obs/ui-thread` + `obs/settings-store` | B | 1.4 | ✅ |
 | WP1.7 | `obs/source-tracker` ★ | B | 1.2 | ⬜ |
 | WP1.8 | `obs/frontend-events` + replay sorting wiring | C | 1.1, 1.5, 1.6, 1.7 | ⬜ |
@@ -438,3 +438,4 @@ Legend: **Grp** = parallel group within the milestone · ★ = needs a Reviewer 
 | 2026-10-20 | Optional save sound added as WP2.5: Windows playback, off by default, no device routing, and the Desktop Audio capture caveat is documented rather than worked around | User |
 | 2026-10-20 | `sanitize_folder_name` puts the device-name `_` on the stem (`COM1_.exe`), not at the end: Windows reserves `COM1.<anything>`, and the old form also grew by one `_` per save (found by WP1.4) | Orchestrator |
 | 2026-10-20 | `run_on_ui()` runs synchronously when called on the UI thread: OBS 31's UI task handler uses `Qt::AutoConnection` (found by WP1.6); the header now says so and UI-thread callers must not rely on deferral | Orchestrator |
+| 2026-10-20 | file-mover (★ review): the only copy is never deleted (a partial is kept if the source vanishes mid-copy), the source is re-verified before deletion, any non-absent destination counts as taken, and cleanup/removal have their own 5 s budgets. Deferred: a no-replace publish primitive on Windows (`MoveFileW` without the replace flag via an injected FileOps); the residual race is microseconds and only our worker writes to clip folders | Orchestrator |
