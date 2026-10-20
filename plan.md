@@ -159,7 +159,7 @@ Legend: **Grp** = parallel group within the milestone · ★ = needs a Reviewer 
 | ID | Title | Grp | Depends | Status |
 |---|---|---|---|---|
 | WP0.1 | Bring in obs-plugintemplate | A | — | ✅ |
-| WP0.2 | Plugin entry point, locale, LICENSE | B | 0.1 | ⬜ |
+| WP0.2 | Plugin entry point, locale, LICENSE | B | 0.1 | ✅ |
 | WP0.3 | CI: unit tests + format check | B | 0.1 | ⬜ |
 | WP0.4 | M1 interface headers | C (Orch) | 0.2 | ⬜ |
 
@@ -408,3 +408,4 @@ Legend: **Grp** = parallel group within the milestone · ★ = needs a Reviewer 
 | 2026-10-20 | Local compile check uses Ubuntu 24.04's own `libobs-dev` 30.0.2 + Qt 6.4.2 (the OBS PPA is blocked by the container proxy). It catches most glue/UI errors; APIs new in 31.0 are only checked by Windows CI. Ubuntu CI builds against whatever the OBS PPA serves | Orchestrator |
 | 2026-10-20 | Formatting tools pinned to OBS's: clang-format 19.1.x, gersemi 0.21.0 | Orchestrator |
 | 2026-10-20 | `buildspec.json` author `sxnfer`, email `sxnfernandes@outlook.com` (the address already public in this repo's commit history) | Orchestrator |
+| 2026-10-20 | Root `CMakeLists.txt` globs `src/{core,obs,ui}/*.cpp` and `src/platform/*-win.cpp` (Windows) or `*-stub.cpp` (elsewhere) with `CONFIGURE_DEPENDS`; work packages add files and never edit it. Known gap: in an existing build tree, a newly added `Q_OBJECT` header needs a clean build (CI always builds clean) | Orchestrator |

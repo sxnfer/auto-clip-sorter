@@ -19,16 +19,42 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <obs-module.h>
 #include <plugin-support.h>
 
+#include <exception>
+
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE(PLUGIN_NAME, "en-US")
 
+// OBS calls these from C code, so an exception must not unwind into it. Catch and log instead.
 bool obs_module_load(void)
 {
-	obs_log(LOG_INFO, "plugin loaded successfully (version %s)", PLUGIN_VERSION);
-	return true;
+	try {
+		obs_log(LOG_INFO, "loaded v%s", PLUGIN_VERSION);
+		return true;
+	} catch (const std::exception &e) {
+		obs_log(LOG_ERROR, "load failed: %s", e.what());
+	} catch (...) {
+		obs_log(LOG_ERROR, "load failed: unknown exception");
+	}
+	return false;
 }
 
 void obs_module_unload(void)
 {
-	obs_log(LOG_INFO, "plugin unloaded");
+	try {
+		obs_log(LOG_INFO, "unloaded");
+	} catch (const std::exception &e) {
+		obs_log(LOG_ERROR, "unload failed: %s", e.what());
+	} catch (...) {
+		obs_log(LOG_ERROR, "unload failed: unknown exception");
+	}
+}
+
+const char *obs_module_name(void)
+{
+	return obs_module_text("ModuleName");
+}
+
+const char *obs_module_description(void)
+{
+	return obs_module_text("ModuleDescription");
 }
