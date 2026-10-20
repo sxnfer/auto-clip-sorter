@@ -59,4 +59,8 @@ private:
 // window, from obs_frontend_get_main_window()).
 void open_settings_dialog(SettingsStore &store, QWidget *parent);
 
+// Deletes the dialog now if it is open, without saving. Called from
+// obs_module_unload() so no window of ours outlives the plugin's code.
+void close_settings_dialog();
+
 } // namespace clip_atlas
