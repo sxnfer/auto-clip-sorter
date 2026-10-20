@@ -161,7 +161,7 @@ Legend: **Grp** = parallel group within the milestone · ★ = needs a Reviewer 
 | WP0.1 | Bring in obs-plugintemplate | A | — | ✅ |
 | WP0.2 | Plugin entry point, locale, LICENSE | B | 0.1 | ✅ |
 | WP0.3 | CI: unit tests + format check | B | 0.1 | ✅ |
-| WP0.4 | M1 interface headers | C (Orch) | 0.2 | ⬜ |
+| WP0.4 | M1 interface headers | C (Orch) | 0.2 | ✅ |
 
 - **WP0.1 — Template import.**
   - Copy the current `obsproject/obs-plugintemplate` into the repo root.
@@ -184,7 +184,7 @@ Legend: **Grp** = parallel group within the milestone · ★ = needs a Reviewer 
   wire in the clang-format check. *Accept:* a deliberately failing test (on a throwaway
   commit, reverted afterwards) turns CI red.
 - **WP0.4 — Interfaces (Orch).** Write the headers for every M1 WP:
-  `name-resolver`, `game-state`, `replay-policy`, `settings-model`, `file-mover`,
+  `name-resolver`, `game-state`, `replay-policy`, `remux-rules`, `settings-model`, `file-mover`,
   `process-info`, `ui-thread`, `source-tracker`, `frontend-events`, `replay-controller`
   and `settings-store`. Each header has doc comments that are precise enough to implement
   from.
@@ -195,7 +195,7 @@ Legend: **Grp** = parallel group within the milestone · ★ = needs a Reviewer 
 |---|---|---|---|---|
 | WP1.1 | `core/name-resolver` | A | 0.4 | ⬜ |
 | WP1.2 | `core/game-state` ★ | A | 0.4 | ⬜ |
-| WP1.3 | `core/replay-policy` | A | 0.4 | ⬜ |
+| WP1.3 | `core/replay-policy` + `core/remux-rules` | A | 0.4 | ⬜ |
 | WP1.4 | `core/settings-model` | A | 0.4 | ⬜ |
 | WP1.5 | `core/file-mover` ★ | A | 0.4 | ⬜ |
 | WP1.6 | `obs/ui-thread` + `obs/settings-store` | B | 1.4 | ⬜ |
@@ -232,6 +232,8 @@ Legend: **Grp** = parallel group within the milestone · ★ = needs a Reviewer 
   - A stop happens only after the grace period. A game hooking again during the grace
     period cancels the pending stop.
   - Unit-tested.
+  - Also implements `core/remux-rules` (`expected_remux_path`), which mirrors OBS 31.0's
+    `OBSBasic::AutoRemux()` naming. Unit-tested.
 - **WP1.4 settings-model.** A plain struct with every setting from `docs/PLAN.md`, its
   defaults, validation and clamping, and a `schema_version` with a migration hook.
   Serialization goes through a tiny key/value interface, so `core/` stays free of OBS.
@@ -268,6 +270,9 @@ Legend: **Grp** = parallel group within the milestone · ★ = needs a Reviewer 
 - **WP1.8 frontend-events.**
   - On `REPLAY_BUFFER_SAVED`, call `obs_frontend_get_last_replay()`, then
     `game_for_save`, then `name-resolver`, then a `file-mover` job.
+  - OBS auto-remuxes a saved replay right after `REPLAY_BUFFER_SAVED`. When
+    `expected_remux_path()` says a remux will happen, wait for the remuxed file to be stable,
+    then move both files.
   - Log the result. Expose a `clip_sorted` callback for the dock in M3.
 - **WP1.9 replay-controller.**
   - Turns `replay-policy` decisions into `obs_frontend_replay_buffer_start/stop` calls on
@@ -410,3 +415,9 @@ Legend: **Grp** = parallel group within the milestone · ★ = needs a Reviewer 
 | 2026-10-20 | `buildspec.json` author `sxnfer`, email `sxnfernandes@outlook.com` (the address already public in this repo's commit history) | Orchestrator |
 | 2026-10-20 | Root `CMakeLists.txt` globs `src/{core,obs,ui}/*.cpp` and `src/platform/*-win.cpp` (Windows) or `*-stub.cpp` (elsewhere) with `CONFIGURE_DEPENDS`; work packages add files and never edit it. Known gap: in an existing build tree, a newly added `Q_OBJECT` header needs a clean build (CI always builds clean) | Orchestrator |
 | 2026-10-20 | Format check covers the whole repo (`build-aux/check-format`, clang-format 19 + gersemi 0.21) on every push and PR; unit tests run on Ubuntu and Windows in CI. Markdown-only PRs keep the template's `paths-ignore` | Orchestrator |
+| 2026-10-20 | WP0.4 contracts: sources are identified by UUID; the clip folder is named by the resolved display name, and the lowercased exe is the key for rules and grouping; OBS's `"unknown"` exe counts as no exe | Orchestrator |
+| 2026-10-20 | An ignored game (user rule) is treated as no game: it never becomes current, never starts the Replay Buffer, and its clips go to the unsorted folder | Orchestrator |
+| 2026-10-20 | Replay Buffer: "we started it" is recorded only on `REPLAY_BUFFER_STARTED` while our start is pending (OBS's start can silently do nothing). If the user stops the buffer while a game is current, we don't restart it until the current game changes | Orchestrator |
+| 2026-10-20 | Replays are remux-aware like recordings: OBS remuxes right after `REPLAY_BUFFER_SAVED`, so the sorter waits for the remuxed file and moves both. New `core/remux-rules`, implemented in WP1.3 | Orchestrator |
+| 2026-10-20 | `settings.json` is read and written on the UI thread (small file, via `obs_data_save_json_safe`): an accepted exception to "no file I/O on the UI thread" | Orchestrator |
+| 2026-10-20 | file-mover never deletes a source without a same-size copy; if the source can't be deleted after copying, the result is `copied_source_kept` (a duplicate, never a loss) | Orchestrator |
