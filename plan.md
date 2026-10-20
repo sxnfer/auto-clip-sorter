@@ -195,7 +195,7 @@ Legend: **Grp** = parallel group within the milestone · ★ = needs a Reviewer 
 |---|---|---|---|---|
 | WP1.1 | `core/name-resolver` | A | 0.4 | ⬜ |
 | WP1.2 | `core/game-state` ★ | A | 0.4 | ⬜ |
-| WP1.3 | `core/replay-policy` + `core/remux-rules` | A | 0.4 | ⬜ |
+| WP1.3 | `core/replay-policy` + `core/remux-rules` | A | 0.4 | ✅ |
 | WP1.4 | `core/settings-model` | A | 0.4 | ⬜ |
 | WP1.5 | `core/file-mover` ★ | A | 0.4 | ⬜ |
 | WP1.6 | `obs/ui-thread` + `obs/settings-store` | B | 1.4 | ⬜ |
