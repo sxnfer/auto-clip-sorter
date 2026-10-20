@@ -110,3 +110,8 @@ TEST_CASE("unique_destination gives up rather than looping forever")
 	};
 	CHECK(unique_destination("clips", "Replay.mkv", always).empty());
 }
+
+TEST_CASE("deliberate failure (throwaway, reverted next commit)")
+{
+	CHECK(false);
+}
