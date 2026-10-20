@@ -2,3 +2,10 @@ __pycache__/
 *.py[cod]
 *$py.class
 build/
+build_*/
+release/
+.ccache/
+*.lock.json
+.DS_Store
+/cmake/.CMakeBuildNumber
+/.deps/

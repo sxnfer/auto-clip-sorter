@@ -158,7 +158,7 @@ Legend: **Grp** = parallel group within the milestone · ★ = needs a Reviewer 
 
 | ID | Title | Grp | Depends | Status |
 |---|---|---|---|---|
-| WP0.1 | Bring in obs-plugintemplate | A | — | ⬜ |
+| WP0.1 | Bring in obs-plugintemplate | A | — | ✅ |
 | WP0.2 | Plugin entry point, locale, LICENSE | B | 0.1 | ⬜ |
 | WP0.3 | CI: unit tests + format check | B | 0.1 | ⬜ |
 | WP0.4 | M1 interface headers | C (Orch) | 0.2 | ⬜ |
@@ -403,3 +403,8 @@ Legend: **Grp** = parallel group within the milestone · ★ = needs a Reviewer 
 | 2026-10-20 | Product decisions recorded in `docs/PLAN.md` | User + Claude |
 | 2026-10-20 | Folder layout `<base>/<Game>/<YYYY-MM>/`, monthly folders optional and on by default; implemented in `core/clip-layout` | User + Claude |
 | 2026-10-20 | Subagent-driven build: Opus orchestrator, Haiku 5.5 workers at max effort | User |
+| 2026-10-20 | WP0.1: template HEAD 3e7d7ac with the OBS 31.0.0 / deps 2024-09-12 pin from template commit 5da535c; libobs configured with `-DENABLE_UI=OFF` (31.0's name; template HEAD's `ENABLE_FRONTEND` doesn't exist in 31.0) | Orchestrator |
+| 2026-10-20 | CI runs on pushes to `claude/**`, so each WP push is checked before a PR exists; packaging stays on as in the template | Orchestrator |
+| 2026-10-20 | Local compile check uses Ubuntu 24.04's own `libobs-dev` 30.0.2 + Qt 6.4.2 (the OBS PPA is blocked by the container proxy). It catches most glue/UI errors; APIs new in 31.0 are only checked by Windows CI. Ubuntu CI builds against whatever the OBS PPA serves | Orchestrator |
+| 2026-10-20 | Formatting tools pinned to OBS's: clang-format 19.1.x, gersemi 0.21.0 | Orchestrator |
+| 2026-10-20 | `buildspec.json` author `sxnfer`, email `sxnfernandes@outlook.com` (the address already public in this repo's commit history) | Orchestrator |
