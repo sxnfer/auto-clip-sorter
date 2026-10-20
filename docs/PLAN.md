@@ -18,6 +18,7 @@ without friction and ships a modern UI built from OBS's own Qt interfaces.
 | Signing | Unsigned for now (document SmartScreen; SignPath Foundation later) |
 | Updates | Check GitHub Releases at most once a day; can be turned off |
 | Python script | Kept in `legacy/` and deprecated: logs a warning, no new features |
+| Save sound | Optional (off by default): a short "Replay saved" voice clip plays through Windows when a clip has been saved and sorted, for single-monitor users. Users can pick their own `.wav` and set the volume. Not kept out of Desktop Audio capture, so the help text warns it can be heard on stream and in later clips. The bundled default (ElevenLabs) ships only with a licence that allows redistribution |
 
 v1 features beyond the script: clip browser dock, sorting recordings and screenshots, game
 name rules, and watching several sources at once.

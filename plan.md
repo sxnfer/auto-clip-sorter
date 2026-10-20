@@ -297,6 +297,7 @@ Legend: **Grp** = parallel group within the milestone · ★ = needs a Reviewer 
 | WP2.2 | Recording glue (stop, remux, split) ★ | B | 2.1 | ⬜ |
 | WP2.3 | Screenshot sorting | A | 2.0 | ⬜ |
 | WP2.4 | "What to sort" settings | A | 2.0 | ⬜ |
+| WP2.5 | Save sound (`platform/sound-player`, setting, Test button) | A | 2.0 | ⬜ |
 
 - **WP2.1** is pure logic for recording sessions.
   - The game is decided when the recording **starts**. If the user enables "dominant
@@ -312,6 +313,18 @@ Legend: **Grp** = parallel group within the milestone · ★ = needs a Reviewer 
 - **WP2.3** wires up `SCREENSHOT_TAKEN` and `obs_frontend_get_last_screenshot()`.
 - **WP2.4** adds settings toggles for replays, recordings and screenshots (all on by
   default) and adds them to the General page.
+- **WP2.5** plays an optional sound once a clip has been saved and sorted (the `clip_sorted`
+  callback with status moved or copied, never on failure).
+  - `platform/sound-player`: `PlaySoundW(path, nullptr, SND_FILENAME | SND_ASYNC | SND_NODEFAULT)`
+    from the Win32 SDK, with a stub elsewhere. The volume is applied by scaling the samples of
+    the loaded `.wav` in memory and playing it with `SND_MEMORY`. The orchestrator confirms
+    the exact approach in the brief.
+  - Settings: `play_save_sound` (off by default), `save_sound_path` (empty means the bundled
+    `data/sounds/replay-saved.wav`) and `save_sound_volume` (0–100). The General page gets a
+    Test button and help text saying the sound can be heard in Desktop Audio captures.
+  - Blocked on the user supplying the default `.wav` with a licence that allows
+    redistribution. Until then the bundled default is left out and the feature only uses a
+    user-chosen file.
 
 ### M3 — Clip browser dock
 
@@ -421,3 +434,5 @@ Legend: **Grp** = parallel group within the milestone · ★ = needs a Reviewer 
 | 2026-10-20 | Replays are remux-aware like recordings: OBS remuxes right after `REPLAY_BUFFER_SAVED`, so the sorter waits for the remuxed file and moves both. New `core/remux-rules`, implemented in WP1.3 | Orchestrator |
 | 2026-10-20 | `settings.json` is read and written on the UI thread (small file, via `obs_data_save_json_safe`): an accepted exception to "no file I/O on the UI thread" | Orchestrator |
 | 2026-10-20 | file-mover never deletes a source without a same-size copy; if the source can't be deleted after copying, the result is `copied_source_kept` (a duplicate, never a loss) | Orchestrator |
+| 2026-10-20 | Auto Replay Buffer reacts only to real game hooks (not show/activate), matching the script closely enough for now | User |
+| 2026-10-20 | Optional save sound added as WP2.5: Windows playback, off by default, no device routing, and the Desktop Audio capture caveat is documented rather than worked around | User |
