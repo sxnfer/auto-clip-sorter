@@ -149,6 +149,8 @@ struct ReplayController::Impl {
 ReplayController::Impl::Impl(const GameState &game_state_ref) : game_state(game_state_ref)
 {
 	recheck_timer.setSingleShot(true);
+	// A coarse timer may fire up to 5% early, which only re-arms the wait and logs it twice.
+	recheck_timer.setTimerType(Qt::PreciseTimer);
 	pending_timer.setSingleShot(true);
 	QObject::connect(&recheck_timer, &QTimer::timeout,
 			 [this] { run_guarded("grace re-check", [this] { evaluate(); }); });
