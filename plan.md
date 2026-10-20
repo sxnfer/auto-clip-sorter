@@ -199,7 +199,7 @@ Legend: **Grp** = parallel group within the milestone · ★ = needs a Reviewer 
 | WP1.4 | `core/settings-model` | A | 0.4 | ✅ |
 | WP1.5 | `core/file-mover` ★ | A | 0.4 | ✅ |
 | WP1.6 | `obs/ui-thread` + `obs/settings-store` | B | 1.4 | ✅ |
-| WP1.7 | `obs/source-tracker` ★ | B | 1.2 | ⬜ |
+| WP1.7 | `obs/source-tracker` ★ | B | 1.2 | ✅ |
 | WP1.8 | `obs/frontend-events` + replay sorting wiring | C | 1.1, 1.5, 1.6, 1.7 | ✅ |
 | WP1.9 | `obs/replay-controller` | C | 1.3, 1.6, 1.7 | ✅ |
 | WP1.10 | Minimal settings dialog (General page) | C | 1.6 | ✅ |
