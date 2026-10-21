@@ -77,6 +77,7 @@ private:
 	QCheckBox *play_save_sound_ = nullptr;
 	QLineEdit *save_sound_path_ = nullptr;
 	QSlider *save_sound_volume_ = nullptr;
+	QCheckBox *check_for_updates_ = nullptr;
 	QDialogButtonBox *buttons_ = nullptr;
 };
 
