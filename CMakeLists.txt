@@ -38,11 +38,11 @@ endif()
 # CONFIGURE_DEPENDS re-runs them at build time, so no manual re-configure is needed.
 if(WIN32)
   # platform/sound-player-win.cpp calls PlaySoundW (winmm). The thumbnail and Shell code use COM (ole32), the Shell
-  # (shell32), GetDIBits (gdi32) and CLSID_FileOperation (uuid). MSVC links most of these by default; naming them keeps
-  # the build independent of that default.
+  # (shell32), GetDIBits (gdi32) and CLSID_FileOperation (uuid); the update check uses WinHTTP (winhttp). MSVC links
+  # most of these by default; naming them keeps the build independent of that default.
   target_link_libraries(
     ${CMAKE_PROJECT_NAME}
-    PRIVATE winmm ole32 shell32 gdi32 uuid
+    PRIVATE winmm ole32 shell32 gdi32 uuid winhttp
   )
   set(clip_atlas_platform_glob "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/*-win.cpp")
 else()

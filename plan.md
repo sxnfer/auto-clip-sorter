@@ -428,21 +428,41 @@ sorted. M5 now follows M3. Every M4 WP stays here, unchanged, for later.
 
 | ID | Title | Grp | Depends | Status |
 |---|---|---|---|---|
-| WP5.1 | `core/version` (semver compare) + `platform/http` (WinHTTP) | A | M3 | ⬜ |
-| WP5.2 | Update checker (once per day, banner, setting to turn off) | B | 5.1, M3 | ⬜ |
-| WP5.3 | Inno Setup installer + zip, CI release job on tag | A | M3 | ⬜ |
-| WP5.4 | Hotkeys (toggle auto-sort) | A | M3 | ⬜ |
-| WP5.5 | Docs: README install guide, SmartScreen steps, troubleshooting, CHANGELOG | B | 5.3 | ⬜ |
-| WP5.6 | Release candidate: tag `v1.0.0-rc.1` → draft release | Orch | all | ⬜ |
+| WP5.0 | Interface headers for M5 + locale keys | Orch | M3 | ✅ |
+| WP5.1 | `core/version` (semver) + `core/update-policy` | A | 5.0 | ⬜ |
+| WP5.2 | `platform/http` (WinHTTP) | A | 5.0 | ⬜ |
+| WP5.3 | Inno Setup installer + zip, CI release job on tag | A | 5.0 | ⬜ |
+| WP5.4 | `obs/hotkeys` (toggle auto-sort) | A | 5.0 | ⬜ |
+| WP5.5 | `obs/update-checker` + "Updates" setting + Tools menu item + update banner + hotkey wiring | B | 5.1, 5.2, 5.4, WP3.6 | ⬜ |
+| WP5.6 | Docs: README install guide, SmartScreen steps, troubleshooting, CHANGELOG | B | 5.3 | ⬜ |
+| WP5.7 | Release candidate: version bump, tag → draft release | Orch | all | ⬜ |
 
+File ownership:
+
+| WP | Owns |
+|---|---|
+| 5.1 | `src/core/version.cpp`, `src/core/update-policy.cpp`, `tests/test-version.cpp`, `tests/test-update-policy.cpp` |
+| 5.2 | `src/platform/http-{win,stub}.cpp` |
+| 5.3 | `installer/`, `.github/scripts/Package-Windows.ps1`, `.github/workflows/build-project.yaml` (Windows job only) |
+| 5.4 | `src/obs/hotkeys.cpp` |
+| 5.5 | `src/obs/update-checker.cpp`, `src/plugin-main.cpp`, `src/ui/settings-dialog.cpp` (+ the header's private members) |
+| 5.6 | `README.md`, `CHANGELOG.md`, `docs/install.md` |
+
+- **The update check** asks `GET https://api.github.com/repos/sxnfer/auto-clip-sorter/releases/latest`
+  (published, non-pre-release releases only; 404 while none exists) at most once a day,
+  60 s after start-up, while "Check for updates once a day" is on. A newer version shows a
+  dismissible dock banner and the Tools menu has "Check for Clip Atlas Updates…".
+  **Nothing is downloaded or installed automatically:** the button opens the release page in
+  the browser, and only a URL under `https://github.com/sxnfer/auto-clip-sorter/releases/` is
+  ever opened.
 - **WP5.3** installs to `%ProgramData%\obs-studio\plugins\clip-atlas\`, which requires
   admin rights.
   - It detects whether `obs64.exe` is running and asks the user to close it.
   - It registers an uninstaller and keeps the user's settings when uninstalling.
-  - The orchestrator confirms that Inno Setup is available on the `windows-2022` runner
-    image, or the job installs it.
-
----
+  - Inno Setup 6.7.1 is on the `windows-2022` runner image (runner-images readme, image
+    20261012); the job still fails clearly if `ISCC.exe` is missing.
+- **WP5.4**: OBS's Settings dialog saves plugin hotkeys in the profile (`[Hotkeys]`
+  section, by name); the plugin loads its binding at start-up and on a profile change.
 
 ## 6. Risks to watch
 
@@ -500,3 +520,5 @@ sorted. M5 now follows M3. Every M4 WP stays here, unchanged, for later.
 | 2026-10-21 | M3 and M5 are built on the session branch `claude/pensive-hamilton-cbg1l4`: this environment can push only to that branch, so one PR carries both milestones | Orchestrator |
 | 2026-10-21 | M3: rename in place uses `MoveFileExW` without the replace flag (an atomic, never-replacing rename) in `platform/shell-ops`, not `file-mover`'s check-then-rename; "Move to game…" uses `file-mover` (cross-drive safe). Delete goes to the Recycle Bin only, with `FOF_WANTNUKEWARNING`, after a confirmation | Orchestrator |
 | 2026-10-21 | M3: the dock asks before moving to the Recycle Bin; a scanned video's type comes from OBS's replay prefix (`[SimpleOutput] RecRBPrefix`, used by both output modes in OBS 31 and 32), a clip filed this session uses the exact type | Orchestrator |
+| 2026-10-21 | M5 update check: "Download" opens the release page in the browser; nothing is downloaded or installed automatically (option A, the plan's default; the user did not pick B). Only URLs under the repository's releases page are opened | Orchestrator |
+| 2026-10-21 | M5 split: version/policy (core), HTTP (platform), hotkeys and the installer run in parallel; the update-checker glue and all `plugin-main.cpp` wiring come after M3's WP3.6, which also owns `plugin-main.cpp` | Orchestrator |

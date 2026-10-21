@@ -16,6 +16,9 @@
 //     volume shown in the dialog, even before OK, through sound_player(); an
 //     empty file field, or a failure the player reports, is shown in a
 //     message box.
+//   Updates (M5): "Check for updates once a day" (check_for_updates), with one
+//     wrapped line of help text (Settings.CheckForUpdates.Help) saying that
+//     nothing is downloaded or installed automatically.
 // M4 turns this into OBS-style sidebar pages (Detection, Replay Buffer, Games,
 // Advanced) without changing how it is opened.
 //
