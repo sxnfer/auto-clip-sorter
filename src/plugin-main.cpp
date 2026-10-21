@@ -26,6 +26,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "frontend-events.hpp"
 #include "game-state.hpp"
 #include "name-resolver.hpp"
+#include "recording-events.hpp"
 #include "replay-controller.hpp"
 #include "settings-dialog.hpp"
 #include "settings-model.hpp"
@@ -62,6 +63,7 @@ struct PluginContext {
 	std::unique_ptr<SourceTracker> tracker;
 	std::unique_ptr<ReplayController> replay;
 	std::unique_ptr<FrontendEvents> events;
+	std::unique_ptr<RecordingEvents> recordings;
 	int settings_listener = 0;
 };
 
@@ -113,7 +115,7 @@ bool hook_is_ignored(const HookInfo &info)
 
 // SourceTracker says the current game may have changed. The replay controller decides whether the Replay Buffer
 // should start or stop. Changes before the controller starts are not forwarded: start_replay_control() tells it
-// the current game once it has started.
+// the current game once it has started. The recording clock gets every change while the plugin runs.
 void on_game_changed()
 {
 	try {
@@ -125,6 +127,16 @@ void on_game_changed()
 	} catch (...) {
 		obs_log(LOG_ERROR, "replay buffer update failed: unknown exception");
 	}
+	// A separate try, so a failure above cannot skip this. Recordings do not depend on the Replay Buffer controller.
+	try {
+		PluginContext *ctx = g_context.get();
+		if (ctx && ctx->recordings && !g_stopped)
+			ctx->recordings->on_game_changed();
+	} catch (const std::exception &e) {
+		obs_log(LOG_ERROR, "recording game update failed: %s", e.what());
+	} catch (...) {
+		obs_log(LOG_ERROR, "recording game update failed: unknown exception");
+	}
 }
 
 // Settings were saved. Pushes the new values to every component that uses them. The replay controller gets them
@@ -134,6 +146,10 @@ void apply_settings_change(const Settings &settings)
 	PluginContext *ctx = g_context.get();
 	if (!ctx)
 		return;
+	// First, so an exception from the tracker or the replay controller cannot skip it. A rule change can make the
+	// current game ignored, so a recording in progress must see the new rules.
+	if (ctx->recordings)
+		ctx->recordings->on_game_changed();
 	ctx->state.set_grace_period(std::chrono::seconds(settings.grace_period_seconds));
 	if (ctx->tracker)
 		ctx->tracker->apply_settings(settings);
@@ -172,6 +188,8 @@ void stop_all()
 			settings_store().unsubscribe(ctx->settings_listener);
 			if (ctx->events)
 				ctx->events->stop();
+			if (ctx->recordings)
+				ctx->recordings->stop();
 			// Only a started controller has anything registered to stop.
 			if (ctx->replay && g_replay_started)
 				ctx->replay->stop();
@@ -297,10 +315,13 @@ void start_plugin()
 	ctx.tracker = std::make_unique<SourceTracker>(ctx.state, on_game_changed, hook_is_ignored);
 	ctx.replay = std::make_unique<ReplayController>(ctx.state);
 	ctx.events = std::make_unique<FrontendEvents>(ctx.state, settings_store(), ctx.mover);
+	ctx.recordings = std::make_unique<RecordingEvents>(ctx.state, settings_store(), ctx.mover);
 
 	ctx.tracker->start(settings);
 	ctx.events->set_clip_sorted_callback(on_clip_sorted);
 	ctx.events->start();
+	ctx.recordings->set_clip_sorted_callback(on_clip_sorted);
+	ctx.recordings->start();
 
 	ctx.settings_listener =
 		settings_store().subscribe([](const Settings &changed) { apply_settings_change(changed); });

@@ -294,7 +294,7 @@ Legend: **Grp** = parallel group within the milestone · ★ = needs a Reviewer 
 |---|---|---|---|---|
 | WP2.0 | Interface headers for M2 (+ `core/clip-routing`, save-sound settings fields) | Orch | M1 | ✅ |
 | WP2.1 | `core/recording-tracker` ★ | A | 2.0 | ✅ |
-| WP2.2 | Recording glue: `obs/recording-events` + wiring (stop, remux, split) ★ | B | 2.1, 2.3, 2.5 | ⬜ |
+| WP2.2 | Recording glue: `obs/recording-events` + wiring (stop, remux, split) ★ | B | 2.1, 2.3, 2.5 | ✅ |
 | WP2.3 | `obs/clip-filer` + screenshot sorting in `obs/frontend-events` | A | 2.0 | ✅ |
 | WP2.4 | General page: "What to sort" and "Save sound" groups | A | 2.0 (links with 2.5) | ✅ |
 | WP2.5 | Save sound: `core/wav-volume`, `platform/sound-player`, wiring | A | 2.0 | ✅ |
@@ -469,5 +469,7 @@ File ownership (no two WPs in a group share a file):
 | 2026-10-20 | Dominant game counts only time with a game current; with none it falls back to the game at start. The option is shown on the General page in M2 so it can be tested; it moves to the Detection page in M4 | Orchestrator |
 | 2026-10-20 | Remux wait timeout: 10 min for replays (as in M1), 60 min for recordings | Orchestrator |
 | 2026-10-21 | WP2.1 review: a game with and without a known exe counts as two games for "dominant game" (told apart by key, else name); a backwards `now` restarts the segment (the plugin passes `steady_clock::now()`, so it can't happen); an exact tie goes to map order. `RecordingEvents` files nothing for a recording it did not track, because OBS's last recording path is not per recording (FFmpeg-to-URL keeps the old one; the multitrack stream dump overwrites it) | Orchestrator |
+| 2026-10-21 | WP2.2 review: OBS drops frontend events while it switches scene collections, so a RECORDING_STOPPED can be lost; a session still active at the next STARTED is ended without filing (files stay where OBS wrote them). The last part of a split expects a remux copy only when it is OBS's last recording path (a multitrack stream dump can overwrite that path) | Orchestrator |
+| 2026-10-21 | Recording facts re-checked against OBS 32.2.2, the version the user runs. OBS 32 adds the Hybrid MOV output `mov_output`, which also splits; it is connected like `ffmpeg_muxer` and `mp4_output` | Orchestrator |
 | 2026-10-20 | The save sound plays for replays only, once per save: it confirms a replay hotkey press. Recordings and screenshots stay silent (a one-line change in `plays_save_sound` if the user wants them) | Orchestrator |
 | 2026-10-20 | Save-sound volume gain is (volume/100)², applied to the samples of an in-memory copy played with `SND_MEMORY`; PCM 8/16/24/32-bit and float32 can be scaled, and at 100 % any WAV plays unchanged. Default volume 80 % | Orchestrator |
