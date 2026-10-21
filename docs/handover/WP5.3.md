@@ -89,3 +89,12 @@ Not certain to exist in Inno Setup 6.7.1 as spelled: `MB_RETRYCANCEL`, `MB_OK`, 
 2. Is it acceptable that the installer is built and uploaded on every Windows run, as the zip already is? A gate would need a change to the `package-plugin` action, which is outside my ownership.
 3. Should the installer use `SuppressibleMsgBox` to keep silent installs from blocking? I can switch if you confirm the function exists in 6.7.1.
 4. The first CI run is the compile test. If a Pascal Script constant is misspelled, the fix is a one-line change in `installer/clip-atlas.iss`.
+
+## Orchestrator integration notes
+
+- Read the whole diff; only the WP's files changed. `Invoke-External` throws on a non-zero exit code
+  (`utils.pwsh/Invoke-External.ps1`), so an ISCC failure fails the job.
+- The PowerShell parse check was refused by this environment's permission guard in the worker's session; the
+  orchestrator did not re-run it on the worker's behalf. The first Windows CI run is the parse and compile check.
+- Building the installer on every Windows run, as the zip already is, is accepted. `MsgBox` (not
+  `SuppressibleMsgBox`) is fine: silent installs are not a supported path.
