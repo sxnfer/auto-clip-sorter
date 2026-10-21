@@ -9,6 +9,7 @@
 // Pure C++17 with no OBS dependency.
 #pragma once
 
+#include <atomic>
 #include <condition_variable>
 #include <cstddef>
 #include <deque>
@@ -49,8 +50,7 @@ public:
 	// joins it). Never destroy the queue from its own task.
 	void shutdown();
 
-	// True on this queue's thread. Not for use during shutdown() from another
-	// thread.
+	// True on this queue's thread. Safe from any thread.
 	bool on_queue_thread() const;
 
 private:
@@ -63,6 +63,9 @@ private:
 	std::condition_variable wake_;
 	std::deque<Task> tasks_;
 	bool stopping_ = false;
+	// The thread's id, written by the thread itself before its first task, so on_queue_thread() never reads thread_
+	// while another thread joins it.
+	std::atomic<std::thread::id> worker_id_{};
 	std::thread thread_;
 };
 

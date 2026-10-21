@@ -29,6 +29,7 @@ TaskQueue::~TaskQueue()
 {
 	shutdown();
 	// Destroyed by its own task: joining would deadlock and a joinable std::thread would terminate the process.
+	std::lock_guard<std::mutex> join_lock(join_mutex_);
 	if (thread_.joinable())
 		thread_.detach();
 }
@@ -67,23 +68,24 @@ void TaskQueue::shutdown()
 	wake_.notify_all();
 	dropped.clear();
 
-	std::lock_guard<std::mutex> join_lock(join_mutex_);
-	if (!thread_.joinable())
-		return;
 	// Called from a task, the thread can't join itself. It stops once the task returns, and a later shutdown() from
-	// another thread (the destructor's, usually) joins it.
-	if (thread_.get_id() == std::this_thread::get_id())
+	// another thread (the destructor's, usually) joins it. Checked before join_mutex_: another thread may hold it while
+	// it waits for this very task to return.
+	if (on_queue_thread())
 		return;
-	thread_.join();
+	std::lock_guard<std::mutex> join_lock(join_mutex_);
+	if (thread_.joinable())
+		thread_.join();
 }
 
 bool TaskQueue::on_queue_thread() const
 {
-	return thread_.get_id() == std::this_thread::get_id();
+	return worker_id_.load() == std::this_thread::get_id();
 }
 
 void TaskQueue::run(Hook on_thread_start, Hook on_thread_exit)
 {
+	worker_id_.store(std::this_thread::get_id());
 	run_guarded(on_thread_start);
 	for (;;) {
 		Task task;

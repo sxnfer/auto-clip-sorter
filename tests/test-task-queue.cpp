@@ -147,3 +147,27 @@ TEST_CASE("TaskQueue accepts posts from its own tasks", "[task-queue]")
 	queue.post([&] { queue.post([&] { inner.set_value(3); }); });
 	CHECK(inner.get_future().get() == 3);
 }
+
+TEST_CASE("TaskQueue shutdown from a task while another thread is shutting down does not deadlock", "[task-queue]")
+{
+	TaskQueue queue;
+	std::promise<void> task_started;
+	std::promise<void> release_task;
+	std::shared_future<void> release = release_task.get_future().share();
+	std::atomic<bool> inner_returned{false};
+
+	queue.post([&] {
+		task_started.set_value();
+		release.wait();
+		// The other thread is inside shutdown(), waiting to join this thread.
+		queue.shutdown();
+		inner_returned = true;
+	});
+	task_started.get_future().wait();
+	std::thread other([&] { queue.shutdown(); });
+	std::this_thread::sleep_for(20ms); // let `other` reach the join
+	release_task.set_value();
+	other.join();
+	CHECK(inner_returned);
+	CHECK_FALSE(queue.post([] {}));
+}
