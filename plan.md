@@ -432,7 +432,7 @@ sorted. M5 now follows M3. Every M4 WP stays here, unchanged, for later.
 | WP5.1 | `core/version` (semver) + `core/update-policy` | A | 5.0 | ✅ |
 | WP5.2 | `platform/http` (WinHTTP) | A | 5.0 | ⬜ |
 | WP5.3 | Inno Setup installer + zip, CI release job on tag | A | 5.0 | ⬜ |
-| WP5.4 | `obs/hotkeys` (toggle auto-sort) | A | 5.0 | ⬜ |
+| WP5.4 | `obs/hotkeys` (toggle auto-sort) | A | 5.0 | ✅ |
 | WP5.5 | `obs/update-checker` + "Updates" setting + Tools menu item + update banner + hotkey wiring | B | 5.1, 5.2, 5.4, WP3.6 | ⬜ |
 | WP5.6 | Docs: README install guide, SmartScreen steps, troubleshooting, CHANGELOG | B | 5.3 | ⬜ |
 | WP5.7 | Release candidate: version bump, tag → draft release | Orch | all | ⬜ |
