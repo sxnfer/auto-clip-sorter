@@ -44,6 +44,15 @@ if (( ! (${skips[(Ie)all]} + ${skips[(Ie)deps]}) )) {
     libsimde-dev \
     obs-studio
 
+  # The OBS PPA is sometimes unreachable (Launchpad answers 503 during outages). apt then installs Ubuntu's own
+  # obs-studio, which has no development files, and configure fails. Ubuntu's libobs-dev has the headers and the
+  # libobs and obs-frontend-api CMake packages, so it stands in for this compile check.
+  local -a libobs_configs=(/usr/lib/*/cmake/libobs/libobsConfig.cmake(N))
+  if (( ! ${#libobs_configs} )) {
+    log_info "The OBS PPA's development files are missing; installing Ubuntu's libobs-dev instead."
+    sudo apt-get install ${apt_args} libobs-dev
+  }
+
   local -a _qt_packages=()
 
   if (( QT_VERSION == 5 )) {

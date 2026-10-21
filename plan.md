@@ -524,3 +524,4 @@ File ownership:
 | 2026-10-21 | M5 split: version/policy (core), HTTP (platform), hotkeys and the installer run in parallel; the update-checker glue and all `plugin-main.cpp` wiring come after M3's WP3.6, which also owns `plugin-main.cpp` | Orchestrator |
 | 2026-10-21 | First release is 1.0.0 even with M4 deferred; the tag is pushed before the Windows test, so GitHub builds a draft release the user publishes after testing | User |
 | 2026-10-21 | This environment refuses tag pushes (only the session branch can be pushed), so the user creates the `1.0.0` tag on GitHub; the tag-triggered workflow then builds the draft release | Orchestrator |
+| 2026-10-21 | Ubuntu CI falls back to Ubuntu's own `libobs-dev` (30.x, the same package the local compile check uses) when the OBS PPA's development files are missing; Launchpad answered 503 for hours and the release job needs every build green | Orchestrator |
