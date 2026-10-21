@@ -353,7 +353,7 @@ File ownership (no two WPs in a group share a file):
 |---|---|---|---|---|
 | WP3.0 | Interface headers + dock layout spec (+ `core/task-queue`, `core/lru-cache`, all M3 locale keys) | Orch | M2 | ✅ |
 | WP3.1 | `core/clip-index` | A | 3.0 | ✅ |
-| WP3.2 | `platform/thumbnails` (Shell API, async) | A | 3.0 | ⬜ |
+| WP3.2 | `platform/thumbnails` (Shell API, async) | A | 3.0 | ✅ |
 | WP3.3 | `platform/shell-ops` (reveal, Recycle Bin, open, rename) ★ | A | 3.0 | ✅ |
 | WP3.4 | `ui/clip-list-model` + row delegate | B | 3.1, 3.2 | ⬜ |
 | WP3.5 | `ui/status-header` + `ui/banner-area` | A | 3.0 | ✅ |
