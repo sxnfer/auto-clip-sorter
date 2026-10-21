@@ -75,8 +75,9 @@ private:
 	}
 };
 
-// Every key save_settings() must write: the 17 constants in settings_keys.
+// Every key save_settings() must write: the 20 constants in settings_keys.
 const char *const kAllKeys[] = {
+	settings_keys::kPlaySaveSound,  settings_keys::kSaveSoundPath,      settings_keys::kSaveSoundVolume,
 	settings_keys::kSchemaVersion,  settings_keys::kClipsFolder,        settings_keys::kMonthlyFolders,
 	settings_keys::kUnsortedFolder, settings_keys::kAutoSort,           settings_keys::kSortReplays,
 	settings_keys::kSortRecordings, settings_keys::kSortScreenshots,    settings_keys::kReplayAutoStart,
@@ -103,6 +104,9 @@ const FieldChange kFieldChanges[] = {
 	{[](Settings &s) { s.replay_auto_start = false; }, settings_keys::kReplayAutoStart},
 	{[](Settings &s) { s.replay_auto_stop = false; }, settings_keys::kReplayAutoStop},
 	{[](Settings &s) { s.grace_period_seconds = 42; }, settings_keys::kGracePeriodSeconds},
+	{[](Settings &s) { s.play_save_sound = true; }, settings_keys::kPlaySaveSound},
+	{[](Settings &s) { s.save_sound_path = "C:/Sounds/saved.wav"; }, settings_keys::kSaveSoundPath},
+	{[](Settings &s) { s.save_sound_volume = 35; }, settings_keys::kSaveSoundVolume},
 	{[](Settings &s) { s.source_selection = SourceSelection::chosen; }, settings_keys::kSourceSelection},
 	{[](Settings &s) { s.chosen_sources = {"uuid-one"}; }, settings_keys::kChosenSources},
 	{[](Settings &s) { s.use_product_name = false; }, settings_keys::kUseProductName},
@@ -125,6 +129,9 @@ Settings customised_settings()
 	s.replay_auto_start = false;
 	s.replay_auto_stop = false;
 	s.grace_period_seconds = 42;
+	s.play_save_sound = true;
+	s.save_sound_path = "C:/Sounds/リプレイ.wav";
+	s.save_sound_volume = 35;
 	s.source_selection = SourceSelection::chosen;
 	s.chosen_sources = {"uuid-one", "uuid-two"};
 	s.use_product_name = false;
@@ -200,6 +207,9 @@ TEST_CASE("defaults match the header and docs/PLAN.md")
 	CHECK(s.replay_auto_start);
 	CHECK(s.replay_auto_stop);
 	CHECK(s.grace_period_seconds == 10);
+	CHECK(!s.play_save_sound); // off by default (docs/PLAN.md)
+	CHECK(s.save_sound_path.empty());
+	CHECK(s.save_sound_volume == 80);
 	CHECK(s.source_selection == SourceSelection::automatic);
 	CHECK(s.chosen_sources.empty());
 	CHECK(s.use_product_name);
@@ -315,9 +325,11 @@ TEST_CASE("mistyped values keep their defaults")
 	     {settings_keys::kMonthlyFolders, settings_keys::kAutoSort, settings_keys::kSortReplays,
 	      settings_keys::kSortRecordings, settings_keys::kSortScreenshots, settings_keys::kReplayAutoStart,
 	      settings_keys::kReplayAutoStop, settings_keys::kUseProductName, settings_keys::kRecordingDominantGame,
-	      settings_keys::kCheckForUpdates})
+	      settings_keys::kCheckForUpdates, settings_keys::kPlaySaveSound})
 		store.strings[key] = "false";
 	store.strings[settings_keys::kGracePeriodSeconds] = "3";
+	store.strings[settings_keys::kSaveSoundVolume] = "3";
+	store.bools[settings_keys::kSaveSoundPath] = true;
 	store.strings[settings_keys::kSchemaVersion] = "99";
 	store.strings[settings_keys::kChosenSources] = "uuid-one";
 	store.strings[settings_keys::kGameRules] = "eldenring.exe";
@@ -342,6 +354,26 @@ TEST_CASE("grace period is clamped to its range")
 	Settings high;
 	high.grace_period_seconds = 1000;
 	CHECK(validated(high).grace_period_seconds == Settings::kMaxGracePeriodSeconds);
+}
+
+TEST_CASE("save sound volume is clamped and its path trimmed")
+{
+	Settings low;
+	low.save_sound_volume = -1;
+	CHECK(validated(low).save_sound_volume == Settings::kMinSaveSoundVolume);
+	Settings high;
+	high.save_sound_volume = 101;
+	CHECK(validated(high).save_sound_volume == Settings::kMaxSaveSoundVolume);
+	Settings edge;
+	edge.save_sound_volume = 0;
+	CHECK(validated(edge).save_sound_volume == 0);
+
+	FakeStore store;
+	store.ints[settings_keys::kSaveSoundVolume] = 1LL << 40;
+	store.strings[settings_keys::kSaveSoundPath] = "  D:/Sounds/saved.wav \t";
+	const Settings loaded = load_settings(store);
+	CHECK(loaded.save_sound_volume == Settings::kMaxSaveSoundVolume);
+	CHECK(loaded.save_sound_path == "D:/Sounds/saved.wav");
 }
 
 TEST_CASE("huge stored grace values do not overflow")

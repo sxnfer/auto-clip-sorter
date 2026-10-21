@@ -35,6 +35,8 @@ struct Settings {
 	static constexpr int kSchemaVersion = 1;
 	static constexpr int kMinGracePeriodSeconds = 0;
 	static constexpr int kMaxGracePeriodSeconds = 300;
+	static constexpr int kMinSaveSoundVolume = 0;
+	static constexpr int kMaxSaveSoundVolume = 100;
 
 	int schema_version = kSchemaVersion;
 
@@ -51,6 +53,11 @@ struct Settings {
 	bool replay_auto_start = true;
 	bool replay_auto_stop = true;
 	int grace_period_seconds = 10; // also how long a closed game still gets saves
+
+	// Save sound (M2): played through Windows once a replay has been sorted
+	bool play_save_sound = false;
+	std::string save_sound_path; // UTF-8 path of a .wav; empty: no sound (no default ships yet)
+	int save_sound_volume = 80;  // percent, [kMinSaveSoundVolume, kMaxSaveSoundVolume]
 
 	// Detection
 	SourceSelection source_selection = SourceSelection::automatic;
@@ -111,6 +118,9 @@ constexpr const char *kSortScreenshots = "sort_screenshots";
 constexpr const char *kReplayAutoStart = "replay_auto_start";
 constexpr const char *kReplayAutoStop = "replay_auto_stop";
 constexpr const char *kGracePeriodSeconds = "grace_period_seconds";
+constexpr const char *kPlaySaveSound = "play_save_sound";
+constexpr const char *kSaveSoundPath = "save_sound_path";
+constexpr const char *kSaveSoundVolume = "save_sound_volume";
 constexpr const char *kSourceSelection = "source_selection";
 constexpr const char *kChosenSources = "chosen_sources";
 constexpr const char *kUseProductName = "use_product_name";
@@ -123,6 +133,8 @@ constexpr const char *kCheckForUpdates = "check_for_updates";
 //   - clips_folder: surrounding whitespace trimmed (an empty result is valid)
 //   - unsorted_folder: sanitize_folder_name(value, "Unsorted")
 //   - grace_period_seconds: clamped to [kMinGracePeriodSeconds, kMaxGracePeriodSeconds]
+//   - save_sound_path: surrounding whitespace trimmed
+//   - save_sound_volume: clamped to [kMinSaveSoundVolume, kMaxSaveSoundVolume]
 //   - chosen_sources: blanks removed, duplicates removed keeping first order
 //   - game_rules: executable trimmed and ASCII-lowercased; rules with an empty
 //     executable dropped; for duplicate executables the first rule wins;

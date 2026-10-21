@@ -171,9 +171,11 @@ bool Settings::operator==(const Settings &o) const
 	       auto_sort == o.auto_sort && sort_replays == o.sort_replays && sort_recordings == o.sort_recordings &&
 	       sort_screenshots == o.sort_screenshots && replay_auto_start == o.replay_auto_start &&
 	       replay_auto_stop == o.replay_auto_stop && grace_period_seconds == o.grace_period_seconds &&
-	       source_selection == o.source_selection && chosen_sources == o.chosen_sources &&
-	       use_product_name == o.use_product_name && recording_dominant_game == o.recording_dominant_game &&
-	       game_rules == o.game_rules && check_for_updates == o.check_for_updates;
+	       play_save_sound == o.play_save_sound && save_sound_path == o.save_sound_path &&
+	       save_sound_volume == o.save_sound_volume && source_selection == o.source_selection &&
+	       chosen_sources == o.chosen_sources && use_product_name == o.use_product_name &&
+	       recording_dominant_game == o.recording_dominant_game && game_rules == o.game_rules &&
+	       check_for_updates == o.check_for_updates;
 }
 
 Settings validated(Settings settings)
@@ -184,6 +186,9 @@ Settings validated(Settings settings)
 	settings.unsorted_folder = sanitize_folder_name(settings.unsorted_folder, "Unsorted");
 	settings.grace_period_seconds = std::clamp(settings.grace_period_seconds, Settings::kMinGracePeriodSeconds,
 						   Settings::kMaxGracePeriodSeconds);
+	settings.save_sound_path = trim_ascii(settings.save_sound_path);
+	settings.save_sound_volume =
+		std::clamp(settings.save_sound_volume, Settings::kMinSaveSoundVolume, Settings::kMaxSaveSoundVolume);
 	settings.chosen_sources = validated_sources(settings.chosen_sources);
 	settings.game_rules = validated_rules(settings.game_rules);
 	return settings;
@@ -204,6 +209,9 @@ Settings load_settings(const SettingsReader &reader)
 	read_bool(reader, settings_keys::kReplayAutoStart, settings.replay_auto_start);
 	read_bool(reader, settings_keys::kReplayAutoStop, settings.replay_auto_stop);
 	read_int(reader, settings_keys::kGracePeriodSeconds, settings.grace_period_seconds);
+	read_bool(reader, settings_keys::kPlaySaveSound, settings.play_save_sound);
+	read_string(reader, settings_keys::kSaveSoundPath, settings.save_sound_path);
+	read_int(reader, settings_keys::kSaveSoundVolume, settings.save_sound_volume);
 	read_source_selection(reader, settings.source_selection);
 	read_string_list(reader, settings_keys::kChosenSources, settings.chosen_sources);
 	read_bool(reader, settings_keys::kUseProductName, settings.use_product_name);
@@ -232,6 +240,9 @@ void save_settings(const Settings &settings, SettingsWriter &writer)
 	writer.set_bool(settings_keys::kReplayAutoStart, settings.replay_auto_start);
 	writer.set_bool(settings_keys::kReplayAutoStop, settings.replay_auto_stop);
 	writer.set_int(settings_keys::kGracePeriodSeconds, settings.grace_period_seconds);
+	writer.set_bool(settings_keys::kPlaySaveSound, settings.play_save_sound);
+	writer.set_string(settings_keys::kSaveSoundPath, settings.save_sound_path);
+	writer.set_int(settings_keys::kSaveSoundVolume, settings.save_sound_volume);
 	writer.set_string(settings_keys::kSourceSelection,
 			  settings.source_selection == SourceSelection::chosen ? kSourceChosen : kSourceAutomatic);
 	writer.set_string_list(settings_keys::kChosenSources, settings.chosen_sources);
