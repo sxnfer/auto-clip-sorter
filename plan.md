@@ -293,7 +293,7 @@ Legend: **Grp** = parallel group within the milestone · ★ = needs a Reviewer 
 | ID | Title | Grp | Depends | Status |
 |---|---|---|---|---|
 | WP2.0 | Interface headers for M2 (+ `core/clip-routing`, save-sound settings fields) | Orch | M1 | ✅ |
-| WP2.1 | `core/recording-tracker` ★ | A | 2.0 | ⬜ |
+| WP2.1 | `core/recording-tracker` ★ | A | 2.0 | ✅ |
 | WP2.2 | Recording glue: `obs/recording-events` + wiring (stop, remux, split) ★ | B | 2.1, 2.3, 2.5 | ⬜ |
 | WP2.3 | `obs/clip-filer` + screenshot sorting in `obs/frontend-events` | A | 2.0 | ✅ |
 | WP2.4 | General page: "What to sort" and "Save sound" groups | A | 2.0 (links with 2.5) | ✅ |
@@ -468,5 +468,6 @@ File ownership (no two WPs in a group share a file):
 | 2026-10-20 | Recordings: every part of a split recording is moved when the recording stops, into one folder. The first file comes from `obs_frontend_get_last_recording()` at `RECORDING_STARTED` (OBS sets it in `StartRecording()`), the rest from `file_changed`'s `next_file`. Advanced + FFmpeg output to a URL is not a file and is not tracked | Orchestrator |
 | 2026-10-20 | Dominant game counts only time with a game current; with none it falls back to the game at start. The option is shown on the General page in M2 so it can be tested; it moves to the Detection page in M4 | Orchestrator |
 | 2026-10-20 | Remux wait timeout: 10 min for replays (as in M1), 60 min for recordings | Orchestrator |
+| 2026-10-21 | WP2.1 review: a game with and without a known exe counts as two games for "dominant game" (told apart by key, else name); a backwards `now` restarts the segment (the plugin passes `steady_clock::now()`, so it can't happen); an exact tie goes to map order. `RecordingEvents` files nothing for a recording it did not track, because OBS's last recording path is not per recording (FFmpeg-to-URL keeps the old one; the multitrack stream dump overwrites it) | Orchestrator |
 | 2026-10-20 | The save sound plays for replays only, once per save: it confirms a replay hotkey press. Recordings and screenshots stay silent (a one-line change in `plays_save_sound` if the user wants them) | Orchestrator |
 | 2026-10-20 | Save-sound volume gain is (volume/100)², applied to the samples of an in-memory copy played with `SND_MEMORY`; PCM 8/16/24/32-bit and float32 can be scaled, and at 100 % any WAV plays unchanged. Default volume 80 % | Orchestrator |
