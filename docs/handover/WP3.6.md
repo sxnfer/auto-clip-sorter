@@ -151,4 +151,5 @@ Smoke harness: `/tmp/claude-0/-home-user-auto-clip-sorter/6c995450-a095-5948-9d9
 - Answers: (1) the shared `FileMover` stays (a dock move is rare and user-started; a delay to auto-sort is visible
   only for a large cross-drive move). (2) Deviations 1-3 accepted. (3) Accepted: EXIT waits only while Windows'
   own delete question is open. (4) No notice for the 5000 cap in M3 (listed under the checklist's known limits).
-  (5) Yes: the worker re-runs its harness against the real list model (result below once it is in).
+  (5) Re-run against the real list model and thumbnail stub at 4687bb0, under ASan/UBSan: 122 checks, 0 failed, no
+  sanitizer or leak reports.
