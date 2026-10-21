@@ -429,7 +429,7 @@ sorted. M5 now follows M3. Every M4 WP stays here, unchanged, for later.
 | ID | Title | Grp | Depends | Status |
 |---|---|---|---|---|
 | WP5.0 | Interface headers for M5 + locale keys | Orch | M3 | ✅ |
-| WP5.1 | `core/version` (semver) + `core/update-policy` | A | 5.0 | ⬜ |
+| WP5.1 | `core/version` (semver) + `core/update-policy` | A | 5.0 | ✅ |
 | WP5.2 | `platform/http` (WinHTTP) | A | 5.0 | ⬜ |
 | WP5.3 | Inno Setup installer + zip, CI release job on tag | A | 5.0 | ⬜ |
 | WP5.4 | `obs/hotkeys` (toggle auto-sort) | A | 5.0 | ⬜ |
