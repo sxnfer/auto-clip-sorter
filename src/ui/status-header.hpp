@@ -52,10 +52,13 @@ protected:
 	// Re-elides the game name.
 	void resizeEvent(QResizeEvent *event) override;
 	// Re-applies the palette colours when the OBS theme changes
-	// (QEvent::PaletteChange, QEvent::StyleChange).
+	// (QEvent::PaletteChange, QEvent::StyleChange) and the game label's font
+	// when the font changes (QEvent::FontChange).
 	void changeEvent(QEvent *event) override;
 
 private:
+	// Derives the game label's font from the header's font, so the label follows the theme's size.
+	void apply_game_font();
 	void update_game_label();
 	void update_replay_label();
 

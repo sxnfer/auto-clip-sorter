@@ -57,11 +57,28 @@ public:
 	bool is_shown(BannerId id) const;
 
 private:
-	struct Banner;
-	void rebuild();
+	// A banner from its first show_banner() until hide_banner(). A dismissed banner stays here too, so a later
+	// show_banner() can update it, but it has no row.
+	struct Banner {
+		BannerKind kind = BannerKind::warning;
+		QString text;
+		QString action_text;
+		Action action;
+		bool dismissible = false;
+		QWidget *row = nullptr; // its row in layout_; null while dismissed or not shown
+	};
+
+	QWidget *make_row(BannerId id, const Banner &banner);
+	void refresh_row(BannerId id);
+	void retire_row(Banner &banner);
+	int index_after(BannerId id) const;
+	void run_action(BannerId id);
+	void dismiss(BannerId id);
+	void update_visibility();
 
 	QVBoxLayout *layout_ = nullptr;
-	std::map<BannerId, Banner *> banners_;
+	// Keyed by BannerId, so iterating it visits the banners in stack order.
+	std::map<BannerId, Banner> banners_;
 	std::map<BannerId, QString> dismissed_text_;
 };
 
