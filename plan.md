@@ -357,7 +357,7 @@ File ownership (no two WPs in a group share a file):
 | WP3.3 | `platform/shell-ops` (reveal, Recycle Bin, open, rename) ★ | A | 3.0 | ✅ |
 | WP3.4 | `ui/clip-list-model` + row delegate | B | 3.1, 3.2 | ✅ |
 | WP3.5 | `ui/status-header` + `ui/banner-area` | A | 3.0 | ✅ |
-| WP3.6 | `ui/clip-dock` assembly + right-click menu + registration + wiring | C | 3.3–3.5 | ⬜ |
+| WP3.6 | `ui/clip-dock` assembly + right-click menu + registration + wiring | C | 3.3–3.5 | ✅ |
 
 File ownership (no two WPs in a group share a file):
 

@@ -20,6 +20,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <obs-module.h>
 #include <plugin-support.h>
 
+#include "clip-dock.hpp"
 #include "clip-filer.hpp"
 #include "clip-routing.hpp"
 #include "file-mover.hpp"
@@ -31,10 +32,13 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "settings-dialog.hpp"
 #include "settings-model.hpp"
 #include "settings-store.hpp"
+#include "shell-ops.hpp"
 #include "sound-player.hpp"
 #include "source-tracker.hpp"
+#include "thumbnails.hpp"
 #include "ui-thread.hpp"
 
+#include <QPointer>
 #include <QWidget>
 
 #include <algorithm>
@@ -83,6 +87,10 @@ bool g_exit_seen = false;
 // Set once start_replay_control() has started the Replay Buffer controller.
 bool g_replay_started = false;
 
+// The clip browser. OBS owns the widget once it is added, and deletes it with the main window, so the plugin only looks
+// at it through this pointer, which clears itself when the dock is gone. The plugin never deletes it.
+QPointer<ClipDock> g_dock;
+
 // The save ids whose save sound has played, newest last. The files of one save are reported close together, so the
 // last kRememberedSaves ids are enough to recognise a second file of the same save. UI thread only.
 constexpr std::size_t kRememberedSaves = 32;
@@ -115,7 +123,8 @@ bool hook_is_ignored(const HookInfo &info)
 
 // SourceTracker says the current game may have changed. The replay controller decides whether the Replay Buffer
 // should start or stop. Changes before the controller starts are not forwarded: start_replay_control() tells it
-// the current game once it has started. The recording clock gets every change while the plugin runs.
+// the current game once it has started. The recording clock gets every change while the plugin runs. The clip
+// browser shows the game in its header, so it gets every change too.
 void on_game_changed()
 {
 	try {
@@ -137,6 +146,15 @@ void on_game_changed()
 	} catch (...) {
 		obs_log(LOG_ERROR, "recording game update failed: unknown exception");
 	}
+	// Separate again, so neither failure above can skip the header.
+	try {
+		if (!g_stopped && g_dock)
+			g_dock->on_game_changed();
+	} catch (const std::exception &e) {
+		obs_log(LOG_ERROR, "clip browser game update failed: %s", e.what());
+	} catch (...) {
+		obs_log(LOG_ERROR, "clip browser game update failed: unknown exception");
+	}
 }
 
 // Settings were saved. Pushes the new values to every component that uses them. The replay controller gets them
@@ -155,6 +173,15 @@ void apply_settings_change(const Settings &settings)
 		ctx->tracker->apply_settings(settings);
 	if (ctx->replay && g_replay_started)
 		ctx->replay->apply_settings(settings);
+	// Last, in its own try: the dock follows the new folder, auto-sort and replay settings.
+	try {
+		if (!g_stopped && g_dock)
+			g_dock->apply_settings(settings);
+	} catch (const std::exception &e) {
+		obs_log(LOG_ERROR, "clip browser settings update failed: %s", e.what());
+	} catch (...) {
+		obs_log(LOG_ERROR, "clip browser settings update failed: unknown exception");
+	}
 }
 
 // Tools → Clip Atlas Settings…. OBS calls it on the UI thread. Once the plugin is stopped it does nothing, because
@@ -195,6 +222,13 @@ void stop_all()
 				ctx->replay->stop();
 			if (ctx->tracker)
 				ctx->tracker->stop();
+			// The dock first: it stops its own queue and makes its results do nothing, so nothing is left
+			// waiting on the thumbnails or the Shell. Both are singletons that are never destroyed, and
+			// shutdown() is idempotent.
+			if (g_dock)
+				g_dock->stop();
+			thumbnail_provider().shutdown();
+			shell_ops().shutdown();
 			ctx->mover.shutdown(false);
 		}
 	} catch (const std::exception &e) {
@@ -260,6 +294,15 @@ bool is_new_save(std::uint64_t save_id)
 // when the sound would play, so a file that was skipped never blocks its save's sound.
 void on_clip_sorted(const ClipSorted &clip)
 {
+	// The dock first, in its own try, so a failure there cannot skip the save sound below.
+	try {
+		if (!g_stopped && g_dock)
+			g_dock->on_clip_sorted(clip);
+	} catch (const std::exception &e) {
+		obs_log(LOG_ERROR, "clip browser update failed: %s", e.what());
+	} catch (...) {
+		obs_log(LOG_ERROR, "clip browser update failed: unknown exception");
+	}
 	try {
 		if (g_stopped)
 			return;
@@ -281,6 +324,8 @@ void on_clip_sorted(const ClipSorted &clip)
 // Plugin-level frontend callback, registered by obs_module_load() and never removed. It handles two events:
 //   - OBS_FRONTEND_EVENT_FINISHED_LOADING: OBS has created its outputs and scene collection, so the Replay Buffer
 //     controller starts here. Module load is too early, because the controller asks OBS for the replay buffer output.
+//     The clip browser starts here too, because OBS's recording folder can only be read now.
+//   - OBS_FRONTEND_EVENT_PROFILE_CHANGED: the clip browser checks whether its folder or replay prefix changed.
 //   - OBS_FRONTEND_EVENT_EXIT: OBS is shutting down. The plugin stops here. Objects are destroyed later, in
 //     obs_module_unload().
 // Its private data is nullptr, which stays valid for the life of the process.
@@ -289,6 +334,32 @@ void on_plugin_frontend_event(obs_frontend_event event, void *)
 	try {
 		if (event == OBS_FRONTEND_EVENT_FINISHED_LOADING) {
 			start_replay_control();
+			// Own try, so a failure in the dock cannot skip the rest of this event.
+			try {
+				if (!g_stopped && g_dock) {
+					g_dock->start();
+					// The dock does not own the Replay Buffer controller, so the current status is
+					// passed on here.
+					PluginContext *ctx = g_context.get();
+					if (ctx && ctx->replay)
+						g_dock->on_replay_status(ctx->replay->status());
+					g_dock->on_game_changed();
+				}
+			} catch (const std::exception &e) {
+				obs_log(LOG_ERROR, "clip browser did not start: %s", e.what());
+			} catch (...) {
+				obs_log(LOG_ERROR, "clip browser did not start: unknown exception");
+			}
+		} else if (event == OBS_FRONTEND_EVENT_PROFILE_CHANGED) {
+			// Own try, for the same reason as above.
+			try {
+				if (!g_stopped && g_dock)
+					g_dock->on_profile_changed();
+			} catch (const std::exception &e) {
+				obs_log(LOG_ERROR, "clip browser profile update failed: %s", e.what());
+			} catch (...) {
+				obs_log(LOG_ERROR, "clip browser profile update failed: unknown exception");
+			}
 		} else if (event == OBS_FRONTEND_EVENT_EXIT) {
 			g_exit_seen = true;
 			stop_all();
@@ -327,6 +398,28 @@ void start_plugin()
 		settings_store().subscribe([](const Settings &changed) { apply_settings_change(changed); });
 
 	obs_frontend_add_tools_menu_item(obs_module_text("SettingsMenuItem"), open_settings_from_menu, nullptr);
+
+	// The dock shows the Replay Buffer's status, so it hears about every change from here on. Set before the dock
+	// exists, so the callback never runs against a dock that is not there yet.
+	ctx.replay->set_status_callback([](ReplayBufferStatus status) {
+		try {
+			if (!g_stopped && g_dock)
+				g_dock->on_replay_status(status);
+		} catch (const std::exception &e) {
+			obs_log(LOG_ERROR, "clip browser status update failed: %s", e.what());
+		} catch (...) {
+			obs_log(LOG_ERROR, "clip browser status update failed: unknown exception");
+		}
+	});
+	// OBS restores the user's dock layout after the modules have loaded, so the dock is added here. It is optional:
+	// if it cannot be created, everything else keeps working.
+	try {
+		g_dock = register_clip_dock(ctx.state, settings_store(), ctx.mover);
+	} catch (const std::exception &e) {
+		obs_log(LOG_ERROR, "clip browser did not load: %s", e.what());
+	} catch (...) {
+		obs_log(LOG_ERROR, "clip browser did not load: unknown exception");
+	}
 
 	// Registered last. The callback is never removed, so nothing that can fail may come after this step.
 	obs_frontend_add_event_callback(on_plugin_frontend_event, nullptr);
