@@ -75,9 +75,10 @@ ClipKind kind_of_clip(const std::filesystem::path &file, const ScanOptions &opti
 // components exactly (both paths come from the same settings string). No I/O.
 std::optional<std::string> game_folder_of(const std::filesystem::path &base, const std::filesystem::path &file);
 
-// A file_time_type as system_clock time: now() + (t - file clock now()). C++17
-// doesn't define the epoch of file_time_type, so this is how it converts; it
-// is exact to well within a second.
+// A file_time_type as system_clock time: reading + (t - file clock reading),
+// where both clocks are read once per process (C++17 doesn't define the epoch
+// of file_time_type, so this is how it converts). Exact to well within a
+// second, and the same file time always gives the same result.
 std::chrono::system_clock::time_point to_system_time(std::filesystem::file_time_type t);
 
 // Reads one file's size and modification time and builds its entry: nullopt
