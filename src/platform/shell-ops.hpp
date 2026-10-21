@@ -56,8 +56,11 @@ namespace clip_atlas {
 class ShellOps {
 public:
 	// "" on success, otherwise the reason. Called once per call, on the
-	// ShellOps thread, never inside the call that queued it; or right away on
-	// the calling thread after shutdown() with "Clip Atlas is shutting down".
+	// ShellOps thread, never inside the call that queued it; or with "Clip
+	// Atlas is shutting down" right away on the calling thread for a call made
+	// after shutdown(), and on shutdown()'s thread for a call still queued when
+	// shutdown() runs (possibly while the running call's callback runs on the
+	// ShellOps thread). The stub answers every call on the calling thread.
 	// Must not throw (it is caught and dropped). Hop to the UI thread before
 	// touching widgets or plugin state.
 	using Done = std::function<void(const std::string &error)>;
