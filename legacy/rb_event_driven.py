@@ -1,3 +1,5 @@
+# DEPRECATED: this script is superseded by the Clip Atlas native OBS plugin.
+# It still works but receives no new features. See legacy/README.md.
 import obspython as obs
 import os
 import shutil
@@ -17,6 +19,11 @@ _CONNECT_MAX_DELAY_MS = 2000
 
 base_output_path = ""
 create_source_folders = True
+
+_DEPRECATION_NOTICE = (
+    "Auto Clip Sorter (Python) is deprecated and replaced by the Clip Atlas plugin. "
+    "Remove this script before installing Clip Atlas so clips are not moved twice."
+)
 
 def _sanitize_folder_name(name: str) -> str:
     """Sanitize the folder name by removing invalid characters."""
@@ -248,6 +255,8 @@ def _on_frontend_event(event):
 def script_description() -> str:
     """Return the script description."""
     return (
+        "<b>Deprecated:</b> superseded by the Clip Atlas native plugin. "
+        "Remove this script before installing Clip Atlas.<br><br>"
         "Event-driven Replay Buffer controller (no polling).\n"
         "Starts RB when the selected source is active/hooked, stops when it deactivates.\n"
         "Automatically organizes saved clips into folders by source name."
@@ -314,6 +323,7 @@ def script_update(settings):
 
 def script_load(settings):
     """Load the script."""
+    obs.script_log(obs.LOG_WARNING, _DEPRECATION_NOTICE)
     obs.obs_frontend_add_event_callback(_on_frontend_event)
     _schedule_connect_retry()
 

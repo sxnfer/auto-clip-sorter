@@ -1,0 +1,21 @@
+name: Check Code Formatting 🛠️
+on:
+  workflow_call:
+jobs:
+  check-format:
+    name: Check clang-format and gersemi 🛠️
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Formatters 🛍️
+        run: |
+          : Install Formatters 🛍️
+          sudo apt-get update
+          sudo apt-get install -y clang-format-19 pipx
+          # Ubuntu 24.04 refuses `pip install --user`, so gersemi gets its own pipx environment.
+          pipx install gersemi==0.21.0
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+
+      - name: Check Formatting 🔍
+        run: build-aux/check-format
