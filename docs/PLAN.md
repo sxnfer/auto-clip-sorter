@@ -73,6 +73,6 @@ tests/  Catch2 unit tests for core logic (no OBS needed)
 | 1 | Feature parity | Source tracking, name resolution, replay sorting, Replay Buffer automation, settings |
 | 2 | More capture types | Recordings (remux and split files) and screenshots |
 | 3 | Dock | Status, banners, clip index, thumbnails, right-click actions |
-| 4 | Games and settings | Rules editor, `games.json`, full settings dialog, import from the legacy script |
+| 4 | Games and settings (deferred, after 5) | Rules editor, `games.json`, full settings dialog, import from the legacy script |
 | 5 | Release | Inno Setup installer + zip, tag-driven releases, update checker, docs, beta |
 | Later | Optional | Code signing, Display Capture foreground-window fallback, macOS |

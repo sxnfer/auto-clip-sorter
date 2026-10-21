@@ -152,7 +152,7 @@ legacy/       deprecated Python script (do not modify)
 ## 5. Work packages
 
 Legend: **Grp** = parallel group within the milestone · ★ = needs a Reviewer agent ·
-**Orch** = done by the orchestrator, not a worker.
+**Orch** = done by the orchestrator, not a worker · ⏸ = deferred.
 
 ### M0 — Scaffold
 
@@ -351,43 +351,65 @@ File ownership (no two WPs in a group share a file):
 
 | ID | Title | Grp | Depends | Status |
 |---|---|---|---|---|
-| WP3.0 | Interface headers + dock layout spec | Orch | M2 | ⬜ |
-| WP3.1 | `core/clip-index` | A | 3.0 | ⬜ |
-| WP3.2 | `platform/thumbnails` (Shell API, async, cache) | A | 3.0 | ⬜ |
-| WP3.3 | `platform/shell-ops` (reveal, Recycle Bin, open) | A | 3.0 | ⬜ |
-| WP3.4 | `ui/clip-list-model` + list view | B | 3.1, 3.2 | ⬜ |
-| WP3.5 | `ui/status-header` + `ui/banner-area` | B | 3.0 | ⬜ |
-| WP3.6 | `ui/clip-dock` assembly + right-click menu + registration | C | 3.3–3.5 | ⬜ |
+| WP3.0 | Interface headers + dock layout spec (+ `core/task-queue`, `core/lru-cache`, all M3 locale keys) | Orch | M2 | ✅ |
+| WP3.1 | `core/clip-index` | A | 3.0 | ✅ |
+| WP3.2 | `platform/thumbnails` (Shell API, async) | A | 3.0 | ✅ |
+| WP3.3 | `platform/shell-ops` (reveal, Recycle Bin, open, rename) ★ | A | 3.0 | ✅ |
+| WP3.4 | `ui/clip-list-model` + row delegate | B | 3.1, 3.2 | ✅ |
+| WP3.5 | `ui/status-header` + `ui/banner-area` | A | 3.0 | ✅ |
+| WP3.6 | `ui/clip-dock` assembly + right-click menu + registration + wiring | C | 3.3–3.5 | ✅ |
 
-- **WP3.0 (Orch)** writes a layout spec with an ASCII wireframe and the widget tree, so
-  the three UI WPs line up. It describes:
+File ownership (no two WPs in a group share a file):
+
+| WP | Owns |
+|---|---|
+| 3.1 | `src/core/clip-index.cpp`, `tests/test-clip-index.cpp`, `tests/fixtures/` |
+| 3.2 | `src/platform/thumbnails-{win,stub}.cpp` |
+| 3.3 | `src/platform/shell-ops-{win,stub}.cpp` |
+| 3.4 | `src/ui/clip-list-model.cpp` |
+| 3.5 | `src/ui/status-header.cpp`, `src/ui/banner-area.cpp` |
+| 3.6 | `src/ui/clip-dock.cpp`, `src/plugin-main.cpp` |
+
+- **WP3.0 (Orch)** writes a layout spec with an ASCII wireframe and the widget tree
+  (`docs/handover/M3-dock-spec.md`), so the UI WPs line up, and every M3 header. It also
+  implements the two small shared pieces, `core/task-queue` (one worker thread with
+  start/exit hooks, so the Shell code can initialise COM on it) and `core/lru-cache`, and
+  adds every M3 string to `en-US.ini`, so no worker shares that file. The spec describes:
   - the header: current game, Replay Buffer pill, auto-sort toggle
-  - the banners: Replay Buffer disabled, clips folder missing, legacy script loaded,
-    update available
-  - the list: game filter, search, rows with a thumbnail, type icon, time and size
-  - the footer: Open folder, ⚙
-- **WP3.1** scans `<base>` once at startup to build the index, then updates it on each
+  - the banners: Replay Buffer disabled, no clips folder, clips folder missing, update
+    available (M5). The legacy-script banner waits for M4.
+  - the list: game filter, search, rows with a thumbnail, type, time and size
+  - the footer: Open clips folder, Refresh, ⚙
+- **WP3.1** scans `<base>` on a worker thread when OBS has finished loading (and on
+  Refresh, a profile change, or a clips-folder change), then updates the index from each
   `clip_sorted` callback. It supports grouping, filtering and search, and caps the number
-  of recent clips held in memory. Unit-tested against fixture directories.
-- **WP3.2** uses `IShellItemImageFactory` on a worker thread, with an LRU cache and a
-  placeholder image while loading. The stub version returns no image.
-- **WP3.3** uses `SHOpenFolderAndSelectItems` to reveal a file in Explorer,
-  `IFileOperation` with `FOFX_RECYCLEONDELETE` for deleting to the Recycle Bin, and
-  `ShellExecuteW` to open a clip. Rename and "Move to game…" go through `file-mover`.
-- **WP3.6** registers the dock with `obs_frontend_add_dock_by_id("clip-atlas-dock", …)`.
-  ⚙ opens the settings dialog.
+  of clips held in memory. Unit-tested against temporary directories.
+- **WP3.2** uses `IShellItemImageFactory` on a worker thread (newest request first) and
+  returns premultiplied BGRA pixels, so the platform layer needs no Qt. The model keeps an
+  LRU cache of pixmaps and shows a placeholder while loading. The stub returns nothing.
+- **WP3.3 ★** uses `SHOpenFolderAndSelectItems` to reveal a file in Explorer,
+  `IFileOperation` with `FOFX_RECYCLEONDELETE` (plus `FOF_WANTNUKEWARNING`, so a file that
+  can't be recycled is never deleted silently) for the Recycle Bin, `ShellExecuteW` to
+  open, and `MoveFileExW` without `MOVEFILE_REPLACE_EXISTING` to rename in place. "Move to
+  game…" goes through `file-mover`. Everything runs on its own COM (STA) thread.
+- **WP3.6** registers the dock with `obs_frontend_add_dock_by_id("clip-atlas-dock", …)` in
+  `obs_module_load` (OBS restores dock positions after loading modules). ⚙ opens the
+  settings dialog.
 
-### M4 — Game rules and full settings
+### M4 — Game rules and full settings (deferred)
+
+Deferred by the user on 2026-10-21: it changes names and settings screens, not what gets
+sorted. M5 now follows M3. Every M4 WP stays here, unchanged, for later.
 
 | ID | Title | Grp | Depends | Status |
 |---|---|---|---|---|
-| WP4.0 | Interface headers for M4 | Orch | M3 | ⬜ |
-| WP4.1 | `data/games.json` + loader ★ | A | 4.0 | ⬜ |
-| WP4.2 | `platform/process-info` (exe ProductName via window → pid → path) | A | 4.0 | ⬜ |
-| WP4.3 | `core/scripts-import` (read legacy settings, detect loaded script) | A | 4.0 | ⬜ |
-| WP4.4 | `ui/rules-editor` (Games page) | B | 4.1 | ⬜ |
-| WP4.5 | Full settings dialog (Detection, Replay Buffer, Advanced pages) | B | 4.3 | ⬜ |
-| WP4.6 | Wiring: "legacy script loaded" banner, "add the game running now" | C | 4.2–4.5 | ⬜ |
+| WP4.0 | Interface headers for M4 | Orch | M3 | ⏸ |
+| WP4.1 | `data/games.json` + loader ★ | A | 4.0 | ⏸ |
+| WP4.2 | `platform/process-info` (exe ProductName via window → pid → path) | A | 4.0 | ⏸ |
+| WP4.3 | `core/scripts-import` (read legacy settings, detect loaded script) | A | 4.0 | ⏸ |
+| WP4.4 | `ui/rules-editor` (Games page) | B | 4.1 | ⏸ |
+| WP4.5 | Full settings dialog (Detection, Replay Buffer, Advanced pages) | B | 4.3 | ⏸ |
+| WP4.6 | Wiring: "legacy script loaded" banner, "add the game running now" | C | 4.2–4.5 | ⏸ |
 
 - **WP4.1 ★: avoid made-up data.**
   - **Only include an exe → name mapping the worker is certain of.** It's better to ship
@@ -406,21 +428,41 @@ File ownership (no two WPs in a group share a file):
 
 | ID | Title | Grp | Depends | Status |
 |---|---|---|---|---|
-| WP5.1 | `core/version` (semver compare) + `platform/http` (WinHTTP) | A | M4 | ⬜ |
-| WP5.2 | Update checker (once per day, banner, setting to turn off) | B | 5.1 | ⬜ |
-| WP5.3 | Inno Setup installer + zip, CI release job on tag | A | M4 | ⬜ |
-| WP5.4 | Hotkeys (toggle auto-sort) | A | M4 | ⬜ |
-| WP5.5 | Docs: README install guide, SmartScreen steps, troubleshooting, CHANGELOG | B | 5.3 | ⬜ |
-| WP5.6 | Release candidate: tag `v1.0.0-rc.1` → draft release | Orch | all | ⬜ |
+| WP5.0 | Interface headers for M5 + locale keys | Orch | M3 | ✅ |
+| WP5.1 | `core/version` (semver) + `core/update-policy` | A | 5.0 | ✅ |
+| WP5.2 | `platform/http` (WinHTTP) | A | 5.0 | ✅ |
+| WP5.3 | Inno Setup installer + zip, CI release job on tag | A | 5.0 | ✅ |
+| WP5.4 | `obs/hotkeys` (toggle auto-sort) | A | 5.0 | ✅ |
+| WP5.5 | `obs/update-checker` + "Updates" setting + Tools menu item + update banner + hotkey wiring | B | 5.1, 5.2, 5.4, WP3.6 | ✅ |
+| WP5.6 | Docs: README install guide, SmartScreen steps, troubleshooting, CHANGELOG | B | 5.3 | ✅ |
+| WP5.7 | Release candidate: version bump, tag → draft release | Orch | all | ⏳ version bumped; the tag needs the user |
 
+File ownership:
+
+| WP | Owns |
+|---|---|
+| 5.1 | `src/core/version.cpp`, `src/core/update-policy.cpp`, `tests/test-version.cpp`, `tests/test-update-policy.cpp` |
+| 5.2 | `src/platform/http-{win,stub}.cpp` |
+| 5.3 | `installer/`, `.github/scripts/Package-Windows.ps1`, `.github/workflows/build-project.yaml` (Windows job only) |
+| 5.4 | `src/obs/hotkeys.cpp` |
+| 5.5 | `src/obs/update-checker.cpp`, `src/plugin-main.cpp`, `src/ui/settings-dialog.cpp` (+ the header's private members) |
+| 5.6 | `README.md`, `CHANGELOG.md`, `docs/install.md` |
+
+- **The update check** asks `GET https://api.github.com/repos/sxnfer/auto-clip-sorter/releases/latest`
+  (published, non-pre-release releases only; 404 while none exists) at most once a day,
+  60 s after start-up, while "Check for updates once a day" is on. A newer version shows a
+  dismissible dock banner and the Tools menu has "Check for Clip Atlas Updates…".
+  **Nothing is downloaded or installed automatically:** the button opens the release page in
+  the browser, and only a URL under `https://github.com/sxnfer/auto-clip-sorter/releases/` is
+  ever opened.
 - **WP5.3** installs to `%ProgramData%\obs-studio\plugins\clip-atlas\`, which requires
   admin rights.
   - It detects whether `obs64.exe` is running and asks the user to close it.
   - It registers an uninstaller and keeps the user's settings when uninstalling.
-  - The orchestrator confirms that Inno Setup is available on the `windows-2022` runner
-    image, or the job installs it.
-
----
+  - Inno Setup 6.7.1 is on the `windows-2022` runner image (runner-images readme, image
+    20261012); the job still fails clearly if `ISCC.exe` is missing.
+- **WP5.4**: OBS's Settings dialog saves plugin hotkeys in the profile (`[Hotkeys]`
+  section, by name); the plugin loads its binding at start-up and on a profile change.
 
 ## 6. Risks to watch
 
@@ -473,3 +515,13 @@ File ownership (no two WPs in a group share a file):
 | 2026-10-21 | Recording facts re-checked against OBS 32.2.2, the version the user runs. OBS 32 adds the Hybrid MOV output `mov_output`, which also splits; it is connected like `ffmpeg_muxer` and `mp4_output` | Orchestrator |
 | 2026-10-20 | The save sound plays for replays only, once per save: it confirms a replay hotkey press. Recordings and screenshots stay silent (a one-line change in `plays_save_sound` if the user wants them) | Orchestrator |
 | 2026-10-20 | Save-sound volume gain is (volume/100)², applied to the samples of an in-memory copy played with `SND_MEMORY`; PCM 8/16/24/32-bit and float32 can be scaled, and at 100 % any WAV plays unchanged. Default volume 80 % | Orchestrator |
+| 2026-10-21 | M0–M2 merged to `main` (#1, #2, #3) before the user's M2 Windows test, at the user's request | User |
+| 2026-10-21 | M4 (games list, rules editor, full settings, legacy-script import) deferred; M5 follows M3. The M3 legacy-script banner waits for M4 | User |
+| 2026-10-21 | M3 and M5 are built on the session branch `claude/pensive-hamilton-cbg1l4`: this environment can push only to that branch, so one PR carries both milestones | Orchestrator |
+| 2026-10-21 | M3: rename in place uses `MoveFileExW` without the replace flag (an atomic, never-replacing rename) in `platform/shell-ops`, not `file-mover`'s check-then-rename; "Move to game…" uses `file-mover` (cross-drive safe). Delete goes to the Recycle Bin only, with `FOF_WANTNUKEWARNING`, after a confirmation | Orchestrator |
+| 2026-10-21 | M3: the dock asks before moving to the Recycle Bin; a scanned video's type comes from OBS's replay prefix (`[SimpleOutput] RecRBPrefix`, used by both output modes in OBS 31 and 32), a clip filed this session uses the exact type | Orchestrator |
+| 2026-10-21 | M5 update check: "Download" opens the release page in the browser; nothing is downloaded or installed automatically (option A, the plan's default; the user did not pick B). Only URLs under the repository's releases page are opened | Orchestrator |
+| 2026-10-21 | M5 split: version/policy (core), HTTP (platform), hotkeys and the installer run in parallel; the update-checker glue and all `plugin-main.cpp` wiring come after M3's WP3.6, which also owns `plugin-main.cpp` | Orchestrator |
+| 2026-10-21 | First release is 1.0.0 even with M4 deferred; the tag is pushed before the Windows test, so GitHub builds a draft release the user publishes after testing | User |
+| 2026-10-21 | This environment refuses tag pushes (only the session branch can be pushed), so the user creates the `1.0.0` tag on GitHub; the tag-triggered workflow then builds the draft release | Orchestrator |
+| 2026-10-21 | Ubuntu CI falls back to Ubuntu's own `libobs-dev` (30.x, the same package the local compile check uses) when the OBS PPA's development files are missing; Launchpad answered 503 for hours and the release job needs every build green | Orchestrator |

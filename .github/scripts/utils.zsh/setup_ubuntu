@@ -38,11 +38,30 @@ if (( ! (${skips[(Ie)all]} + ${skips[(Ie)deps]}) )) {
   sudo add-apt-repository --yes ppa:obsproject/obs-studio
   sudo apt update
 
-  sudo apt-get install ${apt_args} \
+  # The OBS PPA is sometimes unreachable (Launchpad answers 503 during outages). Then either the install fails on a
+  # PPA download, or apt installs Ubuntu's own obs-studio, which has no development files. In both cases Ubuntu's
+  # libobs-dev stands in: it has the headers and the libobs and obs-frontend-api CMake packages this compile check
+  # needs.
+  if ! sudo apt-get install ${apt_args} \
     build-essential \
     libgles2-mesa-dev \
     libsimde-dev \
-    obs-studio
+    obs-studio; then
+    log_info "The OBS PPA could not be used; installing Ubuntu's packages instead."
+    sudo add-apt-repository --yes --remove ppa:obsproject/obs-studio
+    sudo apt update
+    sudo apt-get install ${apt_args} \
+      build-essential \
+      libgles2-mesa-dev \
+      libsimde-dev \
+      libobs-dev
+  fi
+
+  local -a libobs_configs=(/usr/lib/*/cmake/libobs/libobsConfig.cmake(N))
+  if (( ! ${#libobs_configs} )) {
+    log_info "The OBS PPA's development files are missing; installing Ubuntu's libobs-dev instead."
+    sudo apt-get install ${apt_args} libobs-dev
+  }
 
   local -a _qt_packages=()
 

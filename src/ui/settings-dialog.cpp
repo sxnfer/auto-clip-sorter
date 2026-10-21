@@ -183,6 +183,20 @@ SettingsDialog::SettingsDialog(SettingsStore &store, QWidget *parent) : QDialog(
 	connect(play_save_sound_, &QCheckBox::toggled, this,
 		[sound_details](bool on) { sound_details->setEnabled(on); });
 
+	// Updates (M5): the daily check's switch, and a line saying nothing is installed without asking. The check
+	// reads the setting when each check is due, so no signal is needed here.
+	auto *updates_box = new QGroupBox(module_text("Settings.Updates"), this);
+	auto *updates_form = new QFormLayout(updates_box);
+
+	check_for_updates_ = new QCheckBox(module_text("Settings.CheckForUpdates"), this);
+	updates_form->addRow(check_for_updates_);
+
+	// Plain text: the help line is a sentence, not markup.
+	auto *updates_help = new QLabel(module_text("Settings.CheckForUpdates.Help"), this);
+	updates_help->setTextFormat(Qt::PlainText);
+	updates_help->setWordWrap(true);
+	updates_form->addRow(updates_help);
+
 	// The standard roles keep Enter and Esc working. The labels come from the locale file like every other string,
 	// so one translation covers the whole dialog.
 	buttons_ = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
@@ -200,6 +214,7 @@ SettingsDialog::SettingsDialog(SettingsStore &store, QWidget *parent) : QDialog(
 	root->addWidget(sort_box);
 	root->addWidget(replay_box);
 	root->addWidget(sound_box);
+	root->addWidget(updates_box);
 	root->addWidget(buttons_);
 
 	load(store_.get());
@@ -228,6 +243,7 @@ void SettingsDialog::accept()
 		settings.play_save_sound = play_save_sound_->isChecked();
 		settings.save_sound_path = to_utf8(save_sound_path_->text().trimmed());
 		settings.save_sound_volume = save_sound_volume_->value();
+		settings.check_for_updates = check_for_updates_->isChecked();
 		// set() applies the settings for this session even if the file can't be written, so the
 		// dialog closes either way. The warning is the only sign that the change will not survive a
 		// restart.
@@ -327,6 +343,7 @@ void SettingsDialog::load(const Settings &settings)
 	play_save_sound_->setChecked(settings.play_save_sound);
 	save_sound_path_->setText(to_qstring(settings.save_sound_path));
 	save_sound_volume_->setValue(settings.save_sound_volume);
+	check_for_updates_->setChecked(settings.check_for_updates);
 }
 
 void open_settings_dialog(SettingsStore &store, QWidget *parent)
