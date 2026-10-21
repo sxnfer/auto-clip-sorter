@@ -38,11 +38,14 @@
 
 #include "clip-index.hpp"
 #include "lru-cache.hpp"
+#include "thumbnails.hpp"
 
 #include <QAbstractListModel>
 #include <QPixmap>
 #include <QStyledItemDelegate>
 
+#include <cstdint>
+#include <map>
 #include <set>
 #include <string>
 #include <vector>
@@ -90,6 +93,9 @@ public:
 
 	// The whole index, unfiltered (for the game list and "Move to game…").
 	const ClipIndex &index() const;
+	// The index() above hides QAbstractItemModel's; this brings back
+	// index(row, column, parent) for callers holding a ClipListModel.
+	using QAbstractListModel::index;
 
 	// The clip shown in `row`, or nullptr. Valid until the next change.
 	const ClipEntry *clip_at(int row) const;
@@ -111,20 +117,31 @@ public:
 
 private:
 	void rebuild_rows();
+	// Asks the provider for the picture of `path_utf8`, and marks the path pending under a new ticket.
 	void request_thumbnail(const std::string &path_utf8) const;
+	// The provider's answer, on the UI thread. It is ignored unless `ticket` is still the request pending
+	// for the path: a forgotten or superseded request may describe a file that has changed since.
+	void on_thumbnail(const std::string &path_utf8, std::uint64_t ticket, ThumbnailStatus status,
+			  const Thumbnail &thumb);
+	// Drops a path's picture, its pending request and its failed mark, because its file changed or went away.
+	void forget_thumbnail(const std::string &path_utf8);
 
 	ClipIndex index_;
 	ClipQuery query_;
 	std::vector<ClipEntry> rows_;
 	// mutable: data() is const, and a cache miss starts a request.
 	mutable LruCache<std::string, QPixmap> thumbnails_{kThumbCacheSize};
-	mutable std::set<std::string> pending_;
+	// Path -> ticket of the request in flight. Tickets are never reused, so an answer for a request that was
+	// forgotten or replaced can't be mistaken for the current one.
+	mutable std::map<std::string, std::uint64_t> pending_;
 	mutable std::set<std::string> failed_;
+	mutable std::uint64_t next_ticket_ = 0;
 	bool stopped_ = false;
 };
 
-// Paints a row as the header describes. sizeHint: kRowHeight high, the
-// option's width.
+// Paints a row as the header describes. sizeHint: kRowHeight high and 0 wide,
+// so QListView sizes each row to its viewport (the option's width is the whole
+// view's and would push the right edge under a vertical scrollbar).
 class ClipListDelegate : public QStyledItemDelegate {
 public:
 	explicit ClipListDelegate(QObject *parent = nullptr);
