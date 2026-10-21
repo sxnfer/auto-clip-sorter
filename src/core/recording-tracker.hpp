@@ -22,6 +22,9 @@
 // Games are told apart by ClipGame::key, or by ClipGame::name when the key is
 // empty (a game with no known executable). An unsorted ClipGame is no game.
 //
+// Only std::bad_alloc can escape. If it does, the session may be left
+// partly updated (out of memory only).
+//
 // Not thread-safe: the plugin only touches it on the UI thread. Time is passed
 // in by the caller so tests control it.
 //
@@ -61,16 +64,19 @@ public:
 	RecordingSessionId start(const std::string &first_file, const ClipGame &start_game,
 				 const ClipGame &current_game, SteadyClock::time_point now);
 
-	// OBS moved on to `next_file`. Ignored unless `session` is the active
+	// OBS moved on to `next_file`. Ignored unless `session_id` is the active
 	// session. Returns whether the file was added.
-	bool file_changed(RecordingSessionId session, const std::string &next_file);
+	bool file_changed(RecordingSessionId session_id, const std::string &next_file);
 
 	// The current game changed (unsorted if none). Closes the running segment
 	// at `now` and adds its length to the previous game's total (unsorted time
 	// is not counted), then starts a segment for `current_game`. A change to the
-	// same game only updates the name remembered for it.
+	// same game closes and reopens its segment, so no time is lost or counted
+	// twice, and updates the key and name remembered for it.
 	// Ignored when no session is active. A `now` earlier than the segment's
-	// start counts as zero time, never negative.
+	// start counts as zero time, never negative, and the next segment starts
+	// at that earlier `now` (the plugin passes SteadyClock::now(), which never
+	// goes backwards).
 	void game_changed(const ClipGame &current_game, SteadyClock::time_point now);
 
 	// The recording stopped. Closes the running segment at `now` and ends the
@@ -80,8 +86,10 @@ public:
 	// unrelated output (OBS 31's multitrack stream dump also sets it).
 	//   - use_dominant false: game = the session's start_game.
 	//   - use_dominant true: game = the game with the largest total time; on a
-	//     tie, the one first current earliest in the recording. Its name is the
-	//     latest name seen for it, its key the key it was seen with.
+	//     tie, the one first current earliest in the recording (an exact tie on
+	//     both goes to the identity that sorts first: deterministic but
+	//     arbitrary). Its name is the latest name seen for it, its key the key
+	//     it was seen with. A game current for zero time never wins.
 	//     No time for any game: start_game.
 	// With no active session (STOPPED without STARTED), returns
 	// {fallback_game, {last_file}} (or no files if last_file is empty).
@@ -107,7 +115,8 @@ private:
 	std::vector<std::string> files_;
 	ClipGame segment_game_;
 	SteadyClock::time_point segment_start_{};
-	std::map<std::string, GameTime> game_times_; // by identity (key, or name if no key); games only
+	// By identity, "k:" + key or "n:" + name when the key is empty; games only.
+	std::map<std::string, GameTime> game_times_;
 };
 
 } // namespace clip_atlas

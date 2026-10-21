@@ -35,12 +35,21 @@
 //       output reference until it is disconnected (at STOPPED, at stop(), or
 //       before a new STARTED).
 //   file_changed (output thread): copy calldata_string(cd, "next_file") and
-//     the session id, then run_on_ui() → tracker.file_changed(id, next).
+//     the session id, then run_on_ui() → tracker.file_changed(id, next). If
+//     the id is no longer tracker.session() (the part arrived after STOPPED),
+//     log a WARNING naming the file, which then stays where OBS wrote it.
 //   on_game_changed(): tracker.game_changed(clip_game_for(state.current()), now).
+//     The plugin calls it when SourceTracker reports a change and when the
+//     settings change (a rule can make the current game ignored).
 //   RECORDING_STOPPED:
 //     - disconnect "file_changed" and release the output.
-//     - last = obs_frontend_get_last_recording() (the tracker uses it only if
-//       the session has no file, or when STOPPED arrives without STARTED).
+//     - No active session (the recording was not a file, or STARTED never
+//       reached us): log at INFO and file nothing. OBS's last recording path is
+//       not per recording (an FFmpeg-to-URL recording leaves the previous
+//       recording's path; a multitrack stream dump overwrites it), so filing it
+//       could move an unrelated or still-open file.
+//     - last = obs_frontend_get_last_recording(); the tracker uses it only if
+//       the session has no file of its own.
 //     - finished = tracker.stop(last, settings.recording_dominant_game,
 //       clip_game_for(state.game_for_save(now)), now).
 //     - Skip (log at INFO) unless sorting_enabled(settings, ClipKind::recording).
@@ -87,8 +96,9 @@ public:
 	// the filer. A recording in progress is not filed.
 	void stop();
 
-	// The current game may have changed (SourceTracker's callback). Feeds the
-	// dominant-game clock of a recording in progress. Does nothing after
+	// The current game may have changed (SourceTracker's callback, or a
+	// settings change). Feeds the dominant-game clock of a recording in
+	// progress. Does nothing after
 	// stop() or when no recording is tracked.
 	void on_game_changed();
 
