@@ -6,7 +6,9 @@
 // single-threaded apartment there (CoInitializeEx(nullptr,
 // COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE) in the start hook,
 // CoUninitialize() in the exit hook). The Shell functions below require it.
-// Paths are UTF-8, converted with path_from_utf8(), then .wstring().
+// Paths are UTF-8, converted with path_from_utf8(), then .wstring(). Include
+// <shobjidl.h>, <shlobj.h> and <shellapi.h> (not the *_core.h headers, which
+// MinGW lacks).
 //
 // Windows implementation (shell-ops-win.cpp):
 //   open(path):      ShellExecuteW(nullptr, L"open", path, nullptr, nullptr,

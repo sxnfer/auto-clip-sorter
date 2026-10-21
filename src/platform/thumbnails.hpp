@@ -6,7 +6,8 @@
 // (CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE)
 // in the start hook, CoUninitialize() in the exit hook):
 //   1. SHCreateItemFromParsingName(wide path, nullptr, IID_PPV_ARGS(&item))
-//      gives an IShellItemImageFactory (shobjidl_core.h).
+//      gives an IShellItemImageFactory. Include <shobjidl.h> (not
+//      <shobjidl_core.h>, which MinGW lacks; the SDK's shobjidl.h includes it).
 //   2. item->GetImage(SIZE{size_px, size_px}, SIIGBF_RESIZETOFIT, &hbitmap)
 //      returns the thumbnail, or the file type's icon when Windows has no
 //      thumbnail. The bitmap is the caller's: DeleteObject() it.
