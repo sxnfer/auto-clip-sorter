@@ -98,3 +98,6 @@ Not certain to exist in Inno Setup 6.7.1 as spelled: `MB_RETRYCANCEL`, `MB_OK`, 
   orchestrator did not re-run it on the worker's behalf. The first Windows CI run is the parse and compile check.
 - Building the installer on every Windows run, as the zip already is, is accepted. `MsgBox` (not
   `SuppressibleMsgBox`) is fine: silent installs are not a supported path.
+- CI (run 39602594627, windows-2022): ISCC compiled the script on the first run ("Successful compile (2.141 sec)"),
+  and `clip-atlas-0.1.0-windows-x64-installer.exe` was uploaded in the Windows artifact next to the zip. Running
+  the installer is on the M5 checklist.
