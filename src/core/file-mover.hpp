@@ -37,10 +37,14 @@ namespace clip_atlas {
 // std::filesystem with std::error_code overloads and never throws. Its
 // rename() checks exists(to) first because std::filesystem::rename replaces;
 // the gap between check and rename is accepted since only this worker writes
-// into clip folders.
+// into clip folders. A no-replace publish primitive for Windows is a known
+// follow-up (see plan.md decision log).
 class FileOps {
 public:
 	virtual ~FileOps() = default;
+	// False only when the path is definitely absent. Any other entry (a
+	// dangling symlink included) and any stat error count as present, so a
+	// destination that can't be checked is never treated as free.
 	virtual bool exists(const std::filesystem::path &p) = 0;
 	virtual std::error_code create_directories(const std::filesystem::path &dir) = 0;
 	// Must not replace an existing `to`; return an error instead.
@@ -56,8 +60,10 @@ using JobId = std::uint64_t;
 
 enum class MoveStatus {
 	moved,              // source is now at final_path
-	copied_source_kept, // verified copy at final_path, but the source could not be deleted
-	failed,             // nothing changed; the clip is still at its source path
+	copied_source_kept, // verified copy at final_path; the source was kept (couldn't
+			    // be deleted, or changed after it was verified)
+	failed,             // the clip is still at its source path; except when the source
+			    // vanished mid-copy, where final_path names the kept partial
 	cancelled,          // shut down before the job ran; nothing changed
 };
 
@@ -65,7 +71,7 @@ struct MoveResult {
 	JobId id = 0;
 	MoveStatus status = MoveStatus::failed;
 	std::filesystem::path source;
-	std::filesystem::path final_path; // set for moved and copied_source_kept
+	std::filesystem::path final_path; // moved / copied_source_kept; see failed above
 	std::string error;                // human-readable reason, English, for the log
 };
 
@@ -108,15 +114,22 @@ public:
 
 	// Queues a move of `source` into `dest_dir` (created if missing). The final
 	// name is unique_destination(dest_dir, source.filename()).
-	//   - Missing source: failed at once, no retry.
+	//   - Missing source: failed at once, no retry. A source that is not a
+	//     regular file (directory, symlink): failed at once.
+	//   - Source already in dest_dir (same directory): moved, nothing touched.
 	//   - rename() first. If it fails with std::errc::cross_device_link, fall
 	//     back to copy: copy to "<final name>.clip-atlas-partial" in dest_dir,
-	//     compare file_size() of copy and source, rename the partial to the
-	//     final name, then remove the source. A size mismatch removes the
-	//     partial and fails. If removing the source keeps failing until the
-	//     retry budget runs out, the result is copied_source_kept.
+	//     check the source's (size, mtime) didn't change and the copy's size
+	//     matches, rename the partial to the final name, re-check the source,
+	//     then remove it. A size mismatch removes the partial and fails; a
+	//     source that changed during the copy is copied again; one that changed
+	//     after publishing is kept (copied_source_kept).
+	//   - The only copy is never deleted: if the source vanishes mid-copy, the
+	//     partial is kept and reported (failed, final_path = the partial).
 	//   - Any other rename/copy error is retried with backoff until the retry
-	//     budget is spent, then failed. Partial files are always cleaned up.
+	//     budget is spent, then failed. Partial cleanup and source removal each
+	//     have their own budget of min(retry_budget, 5 s), so a long copy can't
+	//     use it up. Partials are cleaned up except in the vanished-source case.
 	// After shutdown() the job is not queued and the callback gets cancelled
 	// immediately on the calling thread. Returns the job id either way.
 	JobId move(const std::filesystem::path &source, const std::filesystem::path &dest_dir, MoveCallback callback);
@@ -131,9 +144,10 @@ public:
 	// Stops the worker and joins it. Idempotent; safe to call from any thread
 	// except a callback.
 	//   - wait_for_pending = true: queued jobs run to completion first.
-	//   - wait_for_pending = false: a running copy finishes its current step,
-	//     retries and stable waits stop at once with failed/cancelled, and
-	//     queued jobs get cancelled.
+	//   - wait_for_pending = false: a running filesystem call finishes (a large
+	//     cross-volume copy_file can take a while), then retries and stable
+	//     waits stop at once with failed/cancelled, and queued jobs get
+	//     cancelled. A later shutdown(false) aborts an earlier shutdown(true).
 	// Every queued job's callback has been called exactly once when this
 	// returns.
 	void shutdown(bool wait_for_pending);
@@ -147,6 +161,9 @@ private:
 
 	Options options_;
 	std::mutex mutex_;
+	// Serializes the join in shutdown(): two threads joining one std::thread race.
+	// Kept apart from mutex_ because the worker needs mutex_ to finish.
+	std::mutex join_mutex_;
 	std::condition_variable wake_;
 	std::deque<std::unique_ptr<Job>> queue_;
 	bool stopping_ = false;

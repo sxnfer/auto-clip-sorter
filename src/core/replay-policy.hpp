@@ -63,6 +63,8 @@ struct ReplayDecision {
 //        the stop condition false, which cancels the pending stop.
 //        A missing no_game_since with no current game counts as "grace
 //        already elapsed".
+//        A negative grace_period counts as 0, and one longer than a year as a
+//        year, so the deadline can't overflow the clock.
 // Otherwise none, with no recheck_at.
 ReplayDecision decide_replay_action(const ReplayPolicyInput &input);
 

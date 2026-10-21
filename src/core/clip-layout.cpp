@@ -1,5 +1,6 @@
 #include "clip-layout.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <cstdio>
@@ -111,8 +112,11 @@ std::string sanitize_folder_name(const std::string &name, const std::string &fal
 
 	if (out.empty() || out.find_first_not_of('_') == std::string::npos)
 		return fallback;
+	// Windows reserves the device name whatever follows the first dot ("COM1.exe"), so the
+	// underscore goes on the stem. Appending it at the end would still be reserved and would
+	// grow by one more underscore every time the name was sanitised again.
 	if (is_device_name(out))
-		out.push_back('_');
+		out.insert(std::min(out.find('.'), out.size()), 1, '_');
 	return out;
 }
 

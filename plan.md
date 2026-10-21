@@ -193,16 +193,16 @@ Legend: **Grp** = parallel group within the milestone · ★ = needs a Reviewer 
 
 | ID | Title | Grp | Depends | Status |
 |---|---|---|---|---|
-| WP1.1 | `core/name-resolver` | A | 0.4 | ⬜ |
-| WP1.2 | `core/game-state` ★ | A | 0.4 | ⬜ |
-| WP1.3 | `core/replay-policy` + `core/remux-rules` | A | 0.4 | ⬜ |
-| WP1.4 | `core/settings-model` | A | 0.4 | ⬜ |
-| WP1.5 | `core/file-mover` ★ | A | 0.4 | ⬜ |
-| WP1.6 | `obs/ui-thread` + `obs/settings-store` | B | 1.4 | ⬜ |
-| WP1.7 | `obs/source-tracker` ★ | B | 1.2 | ⬜ |
-| WP1.8 | `obs/frontend-events` + replay sorting wiring | C | 1.1, 1.5, 1.6, 1.7 | ⬜ |
-| WP1.9 | `obs/replay-controller` | C | 1.3, 1.6, 1.7 | ⬜ |
-| WP1.10 | Minimal settings dialog (General page) | C | 1.6 | ⬜ |
+| WP1.1 | `core/name-resolver` | A | 0.4 | ✅ |
+| WP1.2 | `core/game-state` ★ | A | 0.4 | ✅ |
+| WP1.3 | `core/replay-policy` + `core/remux-rules` | A | 0.4 | ✅ |
+| WP1.4 | `core/settings-model` | A | 0.4 | ✅ |
+| WP1.5 | `core/file-mover` ★ | A | 0.4 | ✅ |
+| WP1.6 | `obs/ui-thread` + `obs/settings-store` | B | 1.4 | ✅ |
+| WP1.7 | `obs/source-tracker` ★ | B | 1.2 | ✅ |
+| WP1.8 | `obs/frontend-events` + replay sorting wiring | C | 1.1, 1.5, 1.6, 1.7 | ✅ |
+| WP1.9 | `obs/replay-controller` | C | 1.3, 1.6, 1.7 | ✅ |
+| WP1.10 | Minimal settings dialog (General page) | C | 1.6 | ✅ |
 
 - **WP1.1 name-resolver.** Resolves a game name from `{executable, window title,
   product name (optional)}`. It tries, in order:
@@ -436,3 +436,9 @@ Legend: **Grp** = parallel group within the milestone · ★ = needs a Reviewer 
 | 2026-10-20 | file-mover never deletes a source without a same-size copy; if the source can't be deleted after copying, the result is `copied_source_kept` (a duplicate, never a loss) | Orchestrator |
 | 2026-10-20 | Auto Replay Buffer reacts only to real game hooks (not show/activate), matching the script closely enough for now | User |
 | 2026-10-20 | Optional save sound added as WP2.5: Windows playback, off by default, no device routing, and the Desktop Audio capture caveat is documented rather than worked around | User |
+| 2026-10-20 | `sanitize_folder_name` puts the device-name `_` on the stem (`COM1_.exe`), not at the end: Windows reserves `COM1.<anything>`, and the old form also grew by one `_` per save (found by WP1.4) | Orchestrator |
+| 2026-10-20 | `run_on_ui()` runs synchronously when called on the UI thread: OBS 31's UI task handler uses `Qt::AutoConnection` (found by WP1.6); the header now says so and UI-thread callers must not rely on deferral | Orchestrator |
+| 2026-10-20 | file-mover (★ review): the only copy is never deleted (a partial is kept if the source vanishes mid-copy), the source is re-verified before deletion, any non-absent destination counts as taken, and cleanup/removal have their own 5 s budgets. Deferred: a no-replace publish primitive on Windows (`MoveFileW` without the replace flag via an injected FileOps); the residual race is microseconds and only our worker writes to clip folders | Orchestrator |
+| 2026-10-20 | The Replay Buffer controller starts on `OBS_FRONTEND_EVENT_FINISHED_LOADING`: OBS 31 loads modules before `ResetOutputs()`, so `obs_frontend_get_replay_buffer_output()` during module load would dereference a null output handler (found via WP1.9) | Orchestrator |
+| 2026-10-20 | Frontend callbacks are never removed, only made inert: OBS dispatches events with an index loop, so a removal during EXIT makes another plugin's callback run twice or be skipped (found by the WP1.7 ★ review). At EXIT the plugin stops everything but destroys nothing; objects are destroyed in `obs_module_unload`, after OBS has dropped all callbacks | Orchestrator |
+| 2026-10-20 | M1 accepted after the user's Windows test on OBS 32.2.2 (newer than the 31.0 build target): the plugin works on 32.x | User |

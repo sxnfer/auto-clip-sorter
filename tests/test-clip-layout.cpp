@@ -45,8 +45,18 @@ TEST_CASE("sanitize_folder_name avoids Windows device names")
 {
 	CHECK(sanitize_folder_name("CON") == "CON_");
 	CHECK(sanitize_folder_name("nul") == "nul_");
-	CHECK(sanitize_folder_name("COM1.exe") == "COM1.exe_");
+	CHECK(sanitize_folder_name("COM1.exe") == "COM1_.exe");
+	CHECK(sanitize_folder_name("CON.txt") == "CON_.txt");
 	CHECK(sanitize_folder_name("Console") == "Console");
+}
+
+TEST_CASE("sanitize_folder_name is idempotent")
+{
+	for (const char *name :
+	     {"CON", "nul", "COM1.exe", "CON.txt", "Half-Life: Alyx", "  Celeste. . ", "ポケモン", ""}) {
+		const std::string once = sanitize_folder_name(name);
+		CHECK(sanitize_folder_name(once) == once);
+	}
 }
 
 TEST_CASE("sanitize_folder_name falls back when nothing usable remains")

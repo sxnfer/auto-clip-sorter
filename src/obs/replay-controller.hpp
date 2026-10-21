@@ -19,8 +19,14 @@
 // OBS_FRONTEND_EVENT_PROFILE_CHANGED and OBS_FRONTEND_EVENT_FINISHED_LOADING
 // and before each start.
 //
-// Re-checks for a pending stop use a QTimer::singleShot on the UI thread at
-// ReplayDecision::recheck_at.
+// Re-checks for a pending stop use a cancellable single-shot QTimer on the UI
+// thread at ReplayDecision::recheck_at. A start or stop OBS doesn't answer
+// within 10 s clears request_pending; an unanswered start also suppresses
+// retries until the game changes, so a bad output path can't cause a loop.
+//
+// start() calls obs_frontend_get_replay_buffer_output(), which OBS 31 only
+// supports after it has created its outputs: call it on
+// OBS_FRONTEND_EVENT_FINISHED_LOADING, never from obs_module_load().
 //
 // UI thread only.
 #pragma once
@@ -52,8 +58,10 @@ public:
 
 	// Registers the frontend event callback (obs_frontend_add_event_callback).
 	void start(const Settings &settings);
-	// Removes it and cancels any pending re-check. Never stops the Replay
-	// Buffer itself. Idempotent.
+	// Cancels any pending re-check and makes the frontend callback inert (it is
+	// never removed: see replay-controller.cpp). Never stops the Replay Buffer
+	// itself. Idempotent. Destroy the controller only after OBS has dropped
+	// frontend callbacks (obs_module_unload), never during an event dispatch.
 	void stop();
 
 	void apply_settings(const Settings &settings);

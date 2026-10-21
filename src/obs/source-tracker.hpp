@@ -27,12 +27,24 @@
 // proc_handler_call(obs_source_get_proc_handler(src), "get_hooked", &cd) and
 // obs_source_active(src), so a game that was already running is picked up.
 //
-// Threading: hooked/unhooked/activate/deactivate arrive on the graphics
-// thread, source_destroy on the destruction thread. Callbacks copy what they
-// need by value and hop with run_on_ui(); GameState is only touched on the
-// UI thread. Only obs_weak_source_t references are held. Every connected
-// signal is disconnected in stop(); signal_handler_disconnect() waits for an
-// in-flight callback of that signal, so per-source data may be freed after it.
+// Threading: hooked/unhooked and activate/deactivate arrive on the graphics
+// thread (win-capture's and libobs's video ticks); source_destroy on OBS's
+// destruction thread, before the source's own destroy; source_create and
+// source_rename on whichever thread creates or renames the source. Callbacks
+// copy what they need by value and hop with run_on_ui(); GameState is only
+// touched on the UI thread. get_hooked reads strings win-capture reallocates
+// on the graphics thread, so the UI thread never calls it: it queues an
+// OBS_TASK_GRAPHICS task that reads the state and hands it back with a strong
+// reference, which the UI thread releases. Otherwise only obs_weak_source_t
+// references are held. stop() waits for OBS's destroy queue, then disconnects
+// everything; signal_handler_disconnect() waits for an in-flight callback of
+// that signal, so per-source data may be freed after it.
+//
+// The frontend callback is never removed (OBS dispatches by index, so a
+// removal during EXIT would make another callback run twice or be skipped);
+// it goes inert after stop(). Frontend events are not delivered while OBS's
+// disableSaving counter is set, so they are a backstop: source_create and
+// source_destroy carry the real work.
 //
 // UI thread only (all public functions).
 #pragma once
