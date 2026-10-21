@@ -435,7 +435,7 @@ sorted. M5 now follows M3. Every M4 WP stays here, unchanged, for later.
 | WP5.4 | `obs/hotkeys` (toggle auto-sort) | A | 5.0 | ✅ |
 | WP5.5 | `obs/update-checker` + "Updates" setting + Tools menu item + update banner + hotkey wiring | B | 5.1, 5.2, 5.4, WP3.6 | ✅ |
 | WP5.6 | Docs: README install guide, SmartScreen steps, troubleshooting, CHANGELOG | B | 5.3 | ✅ |
-| WP5.7 | Release candidate: version bump, tag → draft release | Orch | all | ⬜ |
+| WP5.7 | Release candidate: version bump, tag → draft release | Orch | all | ✅ |
 
 File ownership:
 
@@ -522,3 +522,4 @@ File ownership:
 | 2026-10-21 | M3: the dock asks before moving to the Recycle Bin; a scanned video's type comes from OBS's replay prefix (`[SimpleOutput] RecRBPrefix`, used by both output modes in OBS 31 and 32), a clip filed this session uses the exact type | Orchestrator |
 | 2026-10-21 | M5 update check: "Download" opens the release page in the browser; nothing is downloaded or installed automatically (option A, the plan's default; the user did not pick B). Only URLs under the repository's releases page are opened | Orchestrator |
 | 2026-10-21 | M5 split: version/policy (core), HTTP (platform), hotkeys and the installer run in parallel; the update-checker glue and all `plugin-main.cpp` wiring come after M3's WP3.6, which also owns `plugin-main.cpp` | Orchestrator |
+| 2026-10-21 | First release is 1.0.0 even with M4 deferred; the tag is pushed before the Windows test, so GitHub builds a draft release the user publishes after testing | User |
