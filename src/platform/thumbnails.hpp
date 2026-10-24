@@ -8,9 +8,11 @@
 //   1. SHCreateItemFromParsingName(wide path, nullptr, IID_PPV_ARGS(&item))
 //      gives an IShellItemImageFactory. Include <shobjidl.h> (not
 //      <shobjidl_core.h>, which MinGW lacks; the SDK's shobjidl.h includes it).
-//   2. item->GetImage(SIZE{size_px, size_px}, SIIGBF_RESIZETOFIT, &hbitmap)
-//      returns the thumbnail, or the file type's icon when Windows has no
-//      thumbnail. The bitmap is the caller's: DeleteObject() it.
+//   2. item->GetImage(SIZE{size_px, size_px}, SIIGBF_RESIZETOFIT |
+//      SIIGBF_THUMBNAILONLY, &hbitmap) returns the thumbnail, and fails when
+//      Windows has none (rather than returning the file type's icon, which the
+//      dock would crop); that answers failed. The bitmap is the caller's:
+//      DeleteObject() it.
 //   3. GetObjectW() + GetDIBits() into a 32 bpp BI_RGB top-down
 //      (negative biHeight) buffer gives premultiplied BGRA. If every alpha
 //      byte is 0 (a bitmap without alpha), every alpha byte is set to 255.

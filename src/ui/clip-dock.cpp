@@ -1,6 +1,6 @@
-// Clip Atlas — the clip browser dock: the status header, the banners, the game and search filters, the clip list and
-// the footer, wired to the scanner, the Shell, the file mover and the plugin's state. docs/handover/M3-dock-spec.md
-// says what each part does; clip-dock.hpp says what each public function does.  Work that runs on another thread (a
+// Clip Atlas — the clip browser dock: the status header, the banners, the filters, the clip list, the preview, the toast
+// and the footer, wired to the scanner, the Shell, the file mover and the plugin's state. docs/handover/M6-dock-spec.md
+// says what each part does; clip-dock.hpp says what each public function does. Work that runs on another thread (a
 // scan, a describe, a Shell call, a move) comes back through run_on_ui(). Each hop captures a std::weak_ptr to the
 // dock's shared state and locks it only on the UI thread, so the last reference is released there too, and a result
 // that arrives after stop() or after the dock is gone does nothing. Widget signals reach the dock the same way.
@@ -8,10 +8,17 @@
 #include "clip-dock.hpp"
 
 #include "banner-area.hpp"
+#include "clip-display.hpp"
 #include "clip-index.hpp"
 #include "clip-layout.hpp"
 #include "clip-list-model.hpp"
+#include "clip-list-view.hpp"
+#include "clip-preview.hpp"
 #include "clip-routing.hpp"
+#include "dock-controls.hpp"
+#include "dock-layout.hpp"
+#include "dock-style.hpp"
+#include "dock-toast.hpp"
 #include "settings-dialog.hpp"
 #include "settings-model.hpp"
 #include "shell-ops.hpp"
@@ -27,28 +34,32 @@
 #include <QAbstractItemView>
 #include <QAction>
 #include <QChar>
-#include <QComboBox>
+#include <QDateTime>
+#include <QDir>
+#include <QEvent>
+#include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QHideEvent>
 #include <QInputDialog>
+#include <QItemSelectionModel>
 #include <QKeySequence>
-#include <QLabel>
 #include <QLineEdit>
-#include <QListView>
+#include <QList>
+#include <QLocale>
 #include <QMenu>
 #include <QMessageBox>
 #include <QModelIndex>
+#include <QPixmap>
 #include <QPoint>
 #include <QPointer>
-#include <QPushButton>
+#include <QRect>
+#include <QResizeEvent>
 #include <QShortcut>
 #include <QShowEvent>
-#include <QSignalBlocker>
+#include <QSizePolicy>
 #include <QStackedWidget>
 #include <QStringList>
-#include <QStyle>
 #include <QTimer>
-#include <QToolButton>
 #include <QVBoxLayout>
 #include <QVariant>
 
@@ -56,6 +67,7 @@
 #include <cstdint>
 #include <exception>
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -66,13 +78,32 @@ namespace clip_atlas {
 
 namespace {
 
-// The ages ("2 min ago") change once a minute, so a minute is as fine as the list needs while the dock is visible.
-constexpr int kAgesIntervalMs = 60 * 1000;
+// The groups change at midnight, so a minute is as fine as the list needs while the dock is visible.
+constexpr int kDayIntervalMs = 60 * 1000;
+// The search field's icon, and the widest the field gets beside the chips in the bottom row.
+constexpr int kSearchIconPx = 16;
+constexpr int kRowSearchWidth = 220;
+// The smallest the dock gets, in any layout.
+constexpr int kMinimumWidth = 200;
+constexpr int kMinimumHeight = 120;
 
 // Every string the dock shows comes from obs_module_text(), through here.
 QString module_text(const char *key)
 {
 	return QString::fromUtf8(obs_module_text(key));
+}
+
+// The core's strings are UTF-8 std::strings. The explicit length keeps an embedded NUL from cutting the text short.
+QString utf8(const std::string &text)
+{
+	return QString::fromUtf8(text.data(), static_cast<qsizetype>(text.size()));
+}
+
+// U+203A SINGLE RIGHT-POINTING ANGLE QUOTATION MARK between spaces, between the folders of a path. A code point, so
+// the source stays plain ASCII.
+QString path_separator()
+{
+	return QStringLiteral(" ") + QChar(0x203A) + QStringLiteral(" ");
 }
 
 // OBS's main window. It owns the dock and is the parent of the dialogs the dock opens.
@@ -136,6 +167,11 @@ struct ClipDock::Impl {
 		ScanOptions options;
 	};
 
+	// A describe for a clip that was just filed: it gets the New mark, and the toast says where it went.
+	struct Filing {
+		MoveStatus status = MoveStatus::moved;
+	};
+
 	Impl(ClipDock *dock, const GameState &state, SettingsStore &settings, FileMover &mover);
 
 	// The dock's Impl while the dock exists and has not been stopped, otherwise nullptr. The weak_ptr is locked
@@ -164,6 +200,17 @@ struct ClipDock::Impl {
 
 	bool live() const { return !shared_->stopped; }
 
+	// Building and arranging the widgets.
+	void build_widgets();
+	void connect_widgets();
+	void apply_layout(DockLayout layout);
+	void layout_column();
+	void layout_row();
+	void layout_wide();
+	void on_resized();
+	void place_toast();
+	void refresh_look();
+
 	// Lifecycle and the OBS events.
 	void start();
 	void stop();
@@ -175,6 +222,7 @@ struct ClipDock::Impl {
 	void update_replay_banner();
 	void show_game();
 	void on_clip_sorted(const ClipSorted &clip);
+	void save_replay();
 
 	// Scanning.
 	void start_scan();
@@ -182,23 +230,33 @@ struct ClipDock::Impl {
 	void apply_folder_banners(bool base_exists);
 
 	// Describing one clip and putting it in the list.
-	void describe_and_upsert(const std::filesystem::path &path, ClipKind kind, bool reselect);
+	void describe_and_upsert(const std::filesystem::path &path, ClipKind kind, bool reselect,
+				 std::optional<Filing> filing = std::nullopt);
 	void apply_described(std::optional<ClipEntry> entry, const std::filesystem::path &path, ClipKind kind,
-			     bool reselect);
+			     bool reselect, std::optional<Filing> filing);
+	void toast_filed(const ClipEntry &clip, MoveStatus status);
 
-	// The list and its filters.
+	// The list, its filters and the preview.
 	void after_list_change();
-	void rebuild_game_combo();
+	void rebuild_chips();
 	void apply_filter();
 	void update_empty_state();
+	void update_summary();
+	void update_preview();
+	void select_first_clip();
+	void refresh_day();
 	std::optional<ClipEntry> selected_clip() const;
 	std::optional<std::filesystem::path> selected_path() const;
 	void select_path(const std::optional<std::filesystem::path> &path);
+	QString where_text(const std::filesystem::path &path) const;
 
 	// The clip actions.
 	void show_context_menu(const QPoint &pos);
+	void show_clip_menu(const ClipEntry &clip, const QPoint &global);
+	void on_row_action(const QModelIndex &index, ClipListDelegate::Action action, const QPoint &global);
+	void on_preview_action(PreviewAction action);
 	void open_clip(const ClipEntry &clip);
-	void reveal_clip(const ClipEntry &clip);
+	void reveal_path(const std::filesystem::path &path);
 	void rename_clip(const ClipEntry &clip);
 	void finish_rename(const std::filesystem::path &path, ClipKind kind, const std::string &error,
 			   const std::string &new_path_utf8);
@@ -221,17 +279,35 @@ struct ClipDock::Impl {
 
 	StatusHeader *header_ = nullptr;
 	BannerArea *banners_ = nullptr;
-	QComboBox *game_combo_ = nullptr;
 	QLineEdit *search_ = nullptr;
+	QAction *search_icon_ = nullptr;
+	ChipBar *chips_ = nullptr;
+	SegmentBar *kinds_ = nullptr;
 	QStackedWidget *stack_ = nullptr;
-	QListView *list_ = nullptr;
-	QLabel *empty_label_ = nullptr;
-	QPushButton *open_folder_ = nullptr;
-	QTimer *ages_timer_ = nullptr;
+	ClipListView *list_ = nullptr;
+	EmptyState *empty_ = nullptr;
+	ClipPreview *preview_ = nullptr;
+	DockToast *toast_ = nullptr;
+	QWidget *footer_ = nullptr;
+	TextBlock *summary_ = nullptr;
+	GhostButton *open_folder_ = nullptr;
+	GhostButton *refresh_ = nullptr;
+	GhostButton *settings_button_ = nullptr;
+	HairLine *line_top_ = nullptr;
+	HairLine *line_bottom_ = nullptr;
+	HairLine *line_side_ = nullptr;
+	QTimer *day_timer_ = nullptr;
 	ClipListModel *model_ = nullptr;
 
+	DockLayout layout_ = DockLayout::column;
+	// A layout change is queued from resizeEvent and made once, after it.
+	bool layout_queued_ = false;
+	// What each chip filters on: nullopt for All, "" for the clips directly in the folder, else a game folder.
+	std::vector<std::optional<std::string>> chip_games_;
 	// Set by start(), which does nothing after its first call.
 	bool started_ = false;
+	// The newest scan stopped at the index's cap.
+	bool truncated_ = false;
 	ReplayBufferStatus replay_status_ = ReplayBufferStatus::inactive;
 	// What the newest scan used. A change to any of these needs a new scan.
 	std::string scanned_base_;
@@ -247,75 +323,95 @@ ClipDock::Impl::Impl(ClipDock *dock, const GameState &state, SettingsStore &sett
 	  mover_(mover),
 	  shared_(std::make_shared<Shared>(dock))
 {
-	auto *root = new QVBoxLayout(dock_);
-	root->setContentsMargins(0, 0, 0, 0);
-	root->setSpacing(4);
+	// An explicit minimum, which a layout doesn't override: the column layout's own minimum is taller than the bottom
+	// row, and the dock must be able to shrink into the row layout. A dock made smaller than its layout needs squeezes
+	// the list first.
+	dock_->setMinimumSize(kMinimumWidth, kMinimumHeight);
+	build_widgets();
+	connect_widgets();
+	apply_layout(DockLayout::column);
 
+	const Settings current = settings_.get();
+	header_->set_auto_sort(current.auto_sort);
+	header_->set_replay_auto_start(current.replay_auto_start);
+	header_->set_replay_status(replay_status_);
+	// The empty list and the All chip until the first scan.
+	rebuild_chips();
+	update_empty_state();
+	update_summary();
+}
+
+// --- building and arranging -----------------------------------------------------------------------------------------
+
+void ClipDock::Impl::build_widgets()
+{
 	header_ = new StatusHeader(dock_);
-	root->addWidget(header_);
 	banners_ = new BannerArea(dock_);
-	root->addWidget(banners_);
 
-	// The game combo is sized by a fixed number of characters rather than its longest name, so one long game name
-	// can't widen the whole dock.
-	game_combo_ = new QComboBox(dock_);
-	game_combo_->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-	game_combo_->setMinimumContentsLength(16);
 	search_ = new QLineEdit(dock_);
 	search_->setPlaceholderText(module_text("Dock.Search.Placeholder"));
 	search_->setClearButtonEnabled(true);
-	auto *filter_row = new QHBoxLayout;
-	filter_row->addWidget(game_combo_);
-	filter_row->addWidget(search_, 1);
-	root->addLayout(filter_row);
+	search_icon_ = search_->addAction(dock_icon(DockIcon::search, dock_->palette(), kSearchIconPx),
+					  QLineEdit::LeadingPosition);
 
-	// The list shows the clips. The message takes its place when there is nothing to list.
+	chips_ = new ChipBar(dock_);
+	chips_->setAccessibleName(module_text("Dock.Filter.Games"));
+	kinds_ = new SegmentBar(
+		{
+			{module_text("Dock.Kind.All"), false, DockIcon::replay},
+			{module_text("Dock.Kind.Replays"), true, DockIcon::replay},
+			{module_text("Dock.Kind.Recordings"), true, DockIcon::recording},
+			{module_text("Dock.Kind.Screenshots"), true, DockIcon::screenshot},
+		},
+		dock_);
+	kinds_->setAccessibleName(module_text("Dock.Filter.Kinds"));
+
+	// The list shows the clips. The empty state takes its place when there is nothing to list.
 	stack_ = new QStackedWidget(dock_);
-	list_ = new QListView(stack_);
+	list_ = new ClipListView(stack_);
 	model_ = new ClipListModel(dock_);
 	list_->setModel(model_);
-	list_->setItemDelegate(new ClipListDelegate(list_));
-	list_->setSelectionMode(QAbstractItemView::SingleSelection);
-	list_->setUniformItemSizes(true);
-	list_->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
-	list_->setContextMenuPolicy(Qt::CustomContextMenu);
 	stack_->addWidget(list_);
+	empty_ = new EmptyState(stack_);
+	stack_->addWidget(empty_);
 
-	empty_label_ = new QLabel(stack_);
-	empty_label_->setWordWrap(true);
-	empty_label_->setAlignment(Qt::AlignCenter);
-	stack_->addWidget(empty_label_);
-	root->addWidget(stack_, 1);
+	preview_ = new ClipPreview(dock_);
 
-	// Footer: the folder button on the left, then Refresh and the settings button.
-	open_folder_ = new QPushButton(module_text("Dock.OpenFolder"), dock_);
+	// Footer: the summary on the left, then the folder, Refresh and Settings buttons.
+	footer_ = new QWidget(dock_);
+	summary_ = new TextBlock(QString(), TextTone::muted, 0.92, QFont::Normal, footer_);
+	summary_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+	open_folder_ = new GhostButton(DockIcon::folder, module_text("Dock.OpenFolder"), footer_);
 	// Nothing is scanned yet, so there is no folder to open.
 	open_folder_->setEnabled(false);
-	auto *refresh = new QToolButton(dock_);
-	refresh->setIcon(dock_->style()->standardIcon(QStyle::SP_BrowserReload));
-	refresh->setAutoRaise(true);
-	refresh->setToolTip(module_text("Dock.Refresh"));
-	refresh->setAccessibleName(module_text("Dock.Refresh"));
-	auto *settings_button = new QToolButton(dock_);
-	// U+2699 GEAR. A glyph rather than an icon, because the standard icons don't include a settings gear.
-	settings_button->setText(QString(QChar(0x2699)));
-	settings_button->setToolButtonStyle(Qt::ToolButtonTextOnly);
-	settings_button->setAutoRaise(true);
-	settings_button->setToolTip(module_text("Dock.Settings"));
-	settings_button->setAccessibleName(module_text("Dock.Settings"));
-	auto *footer = new QHBoxLayout;
-	footer->addWidget(open_folder_);
-	footer->addStretch(1);
-	footer->addWidget(refresh);
-	footer->addWidget(settings_button);
-	root->addLayout(footer);
+	refresh_ = new GhostButton(DockIcon::refresh, module_text("Dock.Refresh"), footer_);
+	settings_button_ = new GhostButton(DockIcon::settings, module_text("Dock.Settings"), footer_);
+	auto *footer_row = new QHBoxLayout(footer_);
+	footer_row->setContentsMargins(12, 3, 6, 3);
+	footer_row->setSpacing(2);
+	footer_row->addWidget(summary_, 1);
+	footer_row->addWidget(open_folder_);
+	footer_row->addWidget(refresh_);
+	footer_row->addWidget(settings_button_);
 
-	ages_timer_ = new QTimer(dock_);
-	ages_timer_->setInterval(kAgesIntervalMs);
+	line_top_ = new HairLine(Qt::Horizontal, dock_);
+	line_bottom_ = new HairLine(Qt::Horizontal, dock_);
+	line_side_ = new HairLine(Qt::Vertical, dock_);
 
+	// In no layout: it floats over the list.
+	toast_ = new DockToast(dock_);
+
+	day_timer_ = new QTimer(dock_);
+	day_timer_->setInterval(kDayIntervalMs);
+}
+
+void ClipDock::Impl::connect_widgets()
+{
 	const std::weak_ptr<Shared> weak = shared_;
-	QObject::connect(game_combo_, &QComboBox::currentIndexChanged, dock_,
-			 [weak](int) { with_live(weak, "game filter", [](Impl &impl) { impl.apply_filter(); }); });
+	chips_->set_chosen_callback(
+		[weak](int) { with_live(weak, "game filter", [](Impl &impl) { impl.apply_filter(); }); });
+	kinds_->set_chosen_callback(
+		[weak](int) { with_live(weak, "type filter", [](Impl &impl) { impl.apply_filter(); }); });
 	QObject::connect(search_, &QLineEdit::textChanged, dock_, [weak](const QString &) {
 		with_live(weak, "search", [](Impl &impl) { impl.apply_filter(); });
 	});
@@ -328,6 +424,31 @@ ClipDock::Impl::Impl(ClipDock *dock, const GameState &state, SettingsStore &sett
 	QObject::connect(list_, &QWidget::customContextMenuRequested, dock_, [weak](const QPoint &pos) {
 		with_live(weak, "the clip menu", [&pos](Impl &impl) { impl.show_context_menu(pos); });
 	});
+	QObject::connect(list_->selectionModel(), &QItemSelectionModel::currentChanged, dock_,
+			 [weak](const QModelIndex &, const QModelIndex &) {
+				 with_live(weak, "the preview", [](Impl &impl) { impl.update_preview(); });
+			 });
+	// The preview borrows the list's picture until its own arrives.
+	QObject::connect(model_, &QAbstractItemModel::dataChanged, dock_,
+			 [weak](const QModelIndex &top, const QModelIndex &, const QList<int> &roles) {
+				 if (!roles.contains(Qt::DecorationRole))
+					 return;
+				 with_live(weak, "the preview's picture", [&top](Impl &impl) {
+					 if (impl.layout_ != DockLayout::wide || top != impl.list_->currentIndex())
+						 return;
+					 impl.preview_->set_fallback(
+						 top.data(ClipListModel::PathRole).toString().toUtf8().toStdString(),
+						 top.data(Qt::DecorationRole).value<QPixmap>());
+				 });
+			 });
+	list_->delegate()->set_action_callback([weak](const QModelIndex &index, ClipListDelegate::Action action,
+						      const QPoint &global) {
+		with_live(weak, "a clip action", [&](Impl &impl) { impl.on_row_action(index, action, global); });
+	});
+	preview_->set_action_callback([weak](PreviewAction action) {
+		with_live(weak, "a preview action", [action](Impl &impl) { impl.on_preview_action(action); });
+	});
+
 	// Delete and F2 act on the selected clip while the list, or a child of it, has the focus. The shortcuts are
 	// owned by the list.
 	new QShortcut(
@@ -348,15 +469,36 @@ ClipDock::Impl::Impl(ClipDock *dock, const GameState &state, SettingsStore &sett
 			});
 		},
 		Qt::WidgetWithChildrenShortcut);
-	QObject::connect(ages_timer_, &QTimer::timeout, dock_, [weak] {
-		with_live(weak, "refreshing the ages", [](Impl &impl) { impl.model_->refresh_ages(); });
-	});
-	QObject::connect(open_folder_, &QPushButton::clicked, dock_, [weak] {
+	// Ctrl+F anywhere in the dock goes to the search; Escape there clears it, then leaves it.
+	new QShortcut(
+		QKeySequence::Find, dock_,
+		[weak] {
+			with_live(weak, "focusing the search", [](Impl &impl) {
+				impl.search_->setFocus(Qt::ShortcutFocusReason);
+				impl.search_->selectAll();
+			});
+		},
+		Qt::WidgetWithChildrenShortcut);
+	new QShortcut(
+		QKeySequence(Qt::Key_Escape), search_,
+		[weak] {
+			with_live(weak, "leaving the search", [](Impl &impl) {
+				if (!impl.search_->text().isEmpty())
+					impl.search_->clear();
+				else
+					impl.list_->setFocus(Qt::ShortcutFocusReason);
+			});
+		},
+		Qt::WidgetShortcut);
+
+	QObject::connect(day_timer_, &QTimer::timeout, dock_,
+			 [weak] { with_live(weak, "a new day", [](Impl &impl) { impl.refresh_day(); }); });
+	QObject::connect(open_folder_, &QAbstractButton::clicked, dock_, [weak] {
 		with_live(weak, "opening the clips folder", [](Impl &impl) { impl.open_folder(); });
 	});
-	QObject::connect(refresh, &QToolButton::clicked, dock_,
+	QObject::connect(refresh_, &QAbstractButton::clicked, dock_,
 			 [weak] { with_live(weak, "refreshing the list", [](Impl &impl) { impl.start_scan(); }); });
-	QObject::connect(settings_button, &QToolButton::clicked, dock_,
+	QObject::connect(settings_button_, &QAbstractButton::clicked, dock_,
 			 [weak] { with_live(weak, "opening the settings", [](Impl &impl) { impl.open_settings(); }); });
 
 	// The switch saves the setting, and the dock is updated through apply_settings() like every other listener.
@@ -367,11 +509,191 @@ ClipDock::Impl::Impl(ClipDock *dock, const GameState &state, SettingsStore &sett
 			store->set(changed);
 		});
 	});
-	header_->set_auto_sort(settings_.get().auto_sort);
+	header_->set_save_callback(
+		[weak] { with_live(weak, "saving the replay", [](Impl &impl) { impl.save_replay(); }); });
+}
 
-	// The empty list and "All games" until the first scan.
-	rebuild_game_combo();
-	update_empty_state();
+void ClipDock::Impl::apply_layout(DockLayout layout)
+{
+	// The selection is carried over by path: the model regroups (a reset) when the strip comes or goes.
+	const std::optional<std::filesystem::path> selected = selected_path();
+	layout_ = layout;
+	// The old layout goes, with its nested layouts; the widgets stay, children of the dock.
+	delete dock_->layout();
+	for (QWidget *widget : {static_cast<QWidget *>(header_), footer_}) {
+		widget->setMinimumWidth(0);
+		widget->setMaximumWidth(QWIDGETSIZE_MAX);
+	}
+	search_->setMaximumWidth(QWIDGETSIZE_MAX);
+
+	switch (layout) {
+	case DockLayout::column:
+		layout_column();
+		break;
+	case DockLayout::row:
+		layout_row();
+		break;
+	case DockLayout::wide:
+		layout_wide();
+		break;
+	}
+
+	const bool row = layout == DockLayout::row;
+	const bool wide = layout == DockLayout::wide;
+	header_->set_layout(row    ? StatusHeader::Layout::rail
+			    : wide ? StatusHeader::Layout::wide
+				   : StatusHeader::Layout::column);
+	chips_->set_max_rows(row ? 1 : wide ? 3 : 2);
+	kinds_->setVisible(!row);
+	preview_->setVisible(wide);
+	line_top_->setVisible(!row);
+	line_bottom_->setVisible(!row);
+	line_side_->setVisible(row || wide);
+	list_->set_strip(row);
+	model_->set_picture_px(row ? ClipListModel::kCardPicturePx : ClipListModel::kThumbRequestPx);
+	model_->set_grouped(!row);
+	// The type filter is hidden in the strip, so it goes back to All rather than filtering out of sight.
+	if (row && kinds_->current() != 0) {
+		kinds_->set_current(0);
+		apply_filter();
+	}
+	select_path(selected);
+	if (wide && !list_->currentIndex().isValid())
+		select_first_clip();
+	update_preview();
+	// The widgets' new places are needed now, for the toast.
+	if (dock_->layout())
+		dock_->layout()->activate();
+	place_toast();
+}
+
+void ClipDock::Impl::layout_column()
+{
+	banners_->setContentsMargins(10, 0, 10, 8);
+	auto *filters = new QVBoxLayout;
+	filters->setContentsMargins(10, 0, 10, 10);
+	filters->setSpacing(8);
+	filters->addWidget(search_);
+	filters->addWidget(chips_);
+	filters->addWidget(kinds_);
+
+	auto *root = new QVBoxLayout(dock_);
+	root->setContentsMargins(0, 0, 0, 0);
+	root->setSpacing(0);
+	root->addWidget(header_);
+	root->addWidget(banners_);
+	root->addLayout(filters);
+	root->addWidget(line_top_);
+	root->addWidget(stack_, 1);
+	root->addWidget(line_bottom_);
+	root->addWidget(footer_);
+}
+
+void ClipDock::Impl::layout_row()
+{
+	// The rail is as wide as the header needs at the theme's font, within reason.
+	const int rail = std::clamp(qRound(QFontMetrics(dock_->font()).height() * 14.5), 230, 320);
+	header_->setFixedWidth(rail);
+	footer_->setFixedWidth(rail);
+	search_->setMaximumWidth(kRowSearchWidth);
+	banners_->setContentsMargins(0, 0, 0, 2);
+
+	auto *rail_column = new QVBoxLayout;
+	rail_column->setContentsMargins(0, 0, 0, 0);
+	rail_column->setSpacing(0);
+	rail_column->addWidget(header_);
+	rail_column->addStretch(1);
+	rail_column->addWidget(footer_);
+
+	auto *filters = new QHBoxLayout;
+	filters->setSpacing(10);
+	filters->addWidget(chips_, 1, Qt::AlignVCenter);
+	filters->addWidget(search_, 0, Qt::AlignVCenter);
+
+	auto *strip = new QVBoxLayout;
+	strip->setContentsMargins(10, 8, 6, 0);
+	strip->setSpacing(4);
+	strip->addWidget(banners_);
+	strip->addLayout(filters);
+	strip->addWidget(stack_, 1);
+
+	auto *root = new QHBoxLayout(dock_);
+	root->setContentsMargins(0, 0, 0, 0);
+	root->setSpacing(0);
+	root->addLayout(rail_column);
+	root->addWidget(line_side_);
+	root->addLayout(strip, 1);
+}
+
+void ClipDock::Impl::layout_wide()
+{
+	banners_->setContentsMargins(12, 0, 12, 8);
+	auto *list_column = new QVBoxLayout;
+	list_column->setContentsMargins(10, 10, 6, 0);
+	list_column->setSpacing(8);
+	list_column->addWidget(search_);
+	list_column->addWidget(chips_);
+	list_column->addWidget(kinds_);
+	list_column->addWidget(stack_, 1);
+
+	auto *body = new QHBoxLayout;
+	body->setContentsMargins(0, 0, 0, 0);
+	body->setSpacing(0);
+	body->addLayout(list_column, 5);
+	body->addWidget(line_side_);
+	body->addWidget(preview_, 6);
+
+	auto *root = new QVBoxLayout(dock_);
+	root->setContentsMargins(0, 0, 0, 0);
+	root->setSpacing(0);
+	root->addWidget(header_);
+	root->addWidget(banners_);
+	root->addWidget(line_top_);
+	root->addLayout(body, 1);
+	root->addWidget(line_bottom_);
+	root->addWidget(footer_);
+}
+
+void ClipDock::Impl::on_resized()
+{
+	place_toast();
+	if (layout_queued_ || choose_dock_layout(dock_->width(), dock_->height(), layout_) == layout_)
+		return;
+	// Not now: rebuilding the layout inside resizeEvent would resize the dock again from inside its own resize.
+	layout_queued_ = true;
+	const std::weak_ptr<Shared> weak = shared_;
+	QTimer::singleShot(0, dock_, [weak] {
+		with_live(weak, "changing the layout", [](Impl &impl) {
+			impl.layout_queued_ = false;
+			const DockLayout wanted =
+				choose_dock_layout(impl.dock_->width(), impl.dock_->height(), impl.layout_);
+			if (wanted != impl.layout_)
+				impl.apply_layout(wanted);
+		});
+	});
+}
+
+void ClipDock::Impl::place_toast()
+{
+	// Over the bottom of the list, or of the rail in the bottom row, which has the room the strip lacks.
+	QRect area(stack_->mapTo(dock_, QPoint(0, 0)), stack_->size());
+	if (layout_ == DockLayout::row) {
+		const int top = header_->geometry().bottom() + 1;
+		const QRect rail(0, top, header_->width(), footer_->geometry().top() - top);
+		if (rail.height() >= 60)
+			area = rail;
+	}
+	toast_->set_area(area);
+}
+
+void ClipDock::Impl::refresh_look()
+{
+	// The accents are read again on the next paint, and the icons are pixmaps in the old colours.
+	reset_theme_accents();
+	search_icon_->setIcon(dock_icon(DockIcon::search, dock_->palette(), kSearchIconPx));
+	header_->set_replay_status(replay_status_);
+	for (QWidget *child : dock_->findChildren<QWidget *>())
+		child->update();
 }
 
 // --- lifecycle and OBS events ---------------------------------------------------------------------------------------
@@ -392,8 +714,10 @@ void ClipDock::Impl::stop()
 	// Set first, so every result that runs from here on finds the dock stopped.
 	shared_->stopped = true;
 	shared_->queue.shutdown();
-	ages_timer_->stop();
+	day_timer_->stop();
 	model_->shutdown();
+	preview_->shutdown();
+	toast_->shutdown();
 }
 
 void ClipDock::Impl::on_shown()
@@ -403,14 +727,14 @@ void ClipDock::Impl::on_shown()
 	// OBS has no event for its recording folder changing, so a dock that was hidden checks the folder when it
 	// shows.
 	refresh_if_changed();
-	// The ages are right at once. The timer keeps them right while the dock stays visible.
-	model_->refresh_ages();
-	ages_timer_->start();
+	// The groups are right at once. The timer keeps them right while the dock stays visible.
+	refresh_day();
+	day_timer_->start();
 }
 
 void ClipDock::Impl::on_hidden()
 {
-	ages_timer_->stop();
+	day_timer_->stop();
 }
 
 void ClipDock::Impl::apply_settings(const Settings &settings)
@@ -418,6 +742,7 @@ void ClipDock::Impl::apply_settings(const Settings &settings)
 	if (!live())
 		return;
 	header_->set_auto_sort(settings.auto_sort);
+	header_->set_replay_auto_start(settings.replay_auto_start);
 	update_replay_banner();
 	refresh_if_changed();
 }
@@ -468,10 +793,38 @@ void ClipDock::Impl::on_clip_sorted(const ClipSorted &clip)
 {
 	if (!live())
 		return;
-	// A file that was neither moved nor copied is still where the list already shows it.
-	if (clip.status != MoveStatus::moved && clip.status != MoveStatus::copied_source_kept)
-		return;
-	describe_and_upsert(clip.final_path, clip.kind, false);
+	switch (clip.status) {
+	case MoveStatus::moved:
+	case MoveStatus::copied_source_kept:
+		describe_and_upsert(clip.final_path, clip.kind, false, Filing{clip.status});
+		break;
+	case MoveStatus::failed: {
+		// The file is still where OBS saved it: the toast says why, and Show finds it there.
+		ClipEntry original;
+		original.path = clip.original_path;
+		original.file_name = path_to_utf8(clip.original_path.filename());
+		original.kind = clip.kind;
+		const std::filesystem::path path = clip.original_path;
+		const std::weak_ptr<Shared> weak = shared_;
+		place_toast();
+		toast_->show_toast(ToastTone::warning, module_text("Dock.Toast.Failed").arg(clip_title(original, true)),
+				   utf8(clip.error), [weak, path] {
+					   with_live(weak, "showing a clip",
+						     [&path](Impl &impl) { impl.reveal_path(path); });
+				   });
+		break;
+	}
+	case MoveStatus::cancelled:
+		// OBS is closing; nothing moved.
+		break;
+	}
+}
+
+void ClipDock::Impl::save_replay()
+{
+	// The button is disabled while the buffer is stopped, but the buffer can stop between the paint and the click.
+	if (obs_frontend_replay_buffer_active())
+		obs_frontend_replay_buffer_save();
 }
 
 // --- scanning -------------------------------------------------------------------------------------------------------
@@ -494,6 +847,7 @@ void ClipDock::Impl::start_scan()
 	if (base_utf8.empty()) {
 		// No folder to list. The list is emptied, and the banner says where the folder is set.
 		shared_->base.clear();
+		truncated_ = false;
 		model_->reset_clips({});
 		apply_folder_banners(true);
 		after_list_change();
@@ -530,6 +884,7 @@ void ClipDock::Impl::apply_scan(ScanResult &&result)
 {
 	// The scan replaces every row, so the selection is carried over by path.
 	const std::optional<std::filesystem::path> selected = selected_path();
+	truncated_ = result.truncated;
 	model_->reset_clips(std::move(result.clips));
 	select_path(selected);
 	apply_folder_banners(result.base_exists);
@@ -564,7 +919,8 @@ void ClipDock::Impl::apply_folder_banners(bool base_exists)
 
 // The file was filed, renamed or moved in, so it is described on the queue and then added to the list. The queue is
 // first-in first-out, so a scan that was queued earlier still lands before this describe, and a later scan includes it.
-void ClipDock::Impl::describe_and_upsert(const std::filesystem::path &path, ClipKind kind, bool reselect)
+void ClipDock::Impl::describe_and_upsert(const std::filesystem::path &path, ClipKind kind, bool reselect,
+					 std::optional<Filing> filing)
 {
 	// Nothing is listed until the first scan, so there is nothing to add the clip to.
 	if (!live() || shared_->base.empty())
@@ -572,7 +928,7 @@ void ClipDock::Impl::describe_and_upsert(const std::filesystem::path &path, Clip
 	const std::filesystem::path base = shared_->base;
 	const ScanOptions options = shared_->options;
 	const std::weak_ptr<Shared> weak = shared_;
-	shared_->queue.post([weak, base, options, path, kind, reselect]() {
+	shared_->queue.post([weak, base, options, path, kind, reselect, filing]() {
 		std::optional<ClipEntry> entry;
 		try {
 			entry = describe_clip(base, path, options);
@@ -583,21 +939,23 @@ void ClipDock::Impl::describe_and_upsert(const std::filesystem::path &path, Clip
 			obs_log(LOG_ERROR, "reading %s failed: unknown exception", path_to_utf8(path).c_str());
 			return;
 		}
-		run_on_ui([weak, entry = std::move(entry), path, kind, reselect]() mutable {
-			with_live(weak, "adding a clip",
-				  [&](Impl &impl) { impl.apply_described(std::move(entry), path, kind, reselect); });
+		run_on_ui([weak, entry = std::move(entry), path, kind, reselect, filing]() mutable {
+			with_live(weak, "adding a clip", [&](Impl &impl) {
+				impl.apply_described(std::move(entry), path, kind, reselect, filing);
+			});
 		});
 	});
 }
 
 void ClipDock::Impl::apply_described(std::optional<ClipEntry> entry, const std::filesystem::path &path, ClipKind kind,
-				     bool reselect)
+				     bool reselect, std::optional<Filing> filing)
 {
 	// Nothing to add: the file is gone, or it is no longer a clip a scan would list.
 	if (!entry)
 		return;
 	// The caller knows the exact kind. A file's name only suggests it, and a clip filed in this session is certain.
 	entry->kind = kind;
+	const ClipEntry clip = *entry;
 	const std::optional<std::filesystem::path> selected = selected_path();
 	model_->upsert_clip(std::move(*entry));
 	if (reselect)
@@ -605,82 +963,182 @@ void ClipDock::Impl::apply_described(std::optional<ClipEntry> entry, const std::
 	else
 		select_path(selected);
 	after_list_change();
+	if (filing) {
+		model_->set_fresh(path);
+		toast_filed(clip, filing->status);
+	}
 }
 
-// --- the list and its filters ---------------------------------------------------------------------------------------
+void ClipDock::Impl::toast_filed(const ClipEntry &clip, MoveStatus status)
+{
+	// Where it went, below the clips folder: "Elden Ring › 2026-10". A clip filed in the folder itself has no
+	// folders below it, so its game, or "Not sorted", says where it is.
+	QStringList folders;
+	for (const std::string &folder : folders_below(shared_->base, clip.path))
+		folders << utf8(folder);
+	const QString where = folders.isEmpty() ? game_label(clip.game_folder) : folders.join(path_separator());
+	const bool copied = status == MoveStatus::copied_source_kept;
+	const QString title = module_text(copied ? "Dock.Toast.Copied" : "Dock.Toast.Filed").arg(where);
+	const QString detail = clip_title(clip, true) + QStringLiteral(" ") + QChar(0x00B7) + QStringLiteral(" ") +
+			       utf8(format_size(clip.size));
+	const std::filesystem::path path = clip.path;
+	const std::weak_ptr<Shared> weak = shared_;
+	place_toast();
+	toast_->show_toast(copied ? ToastTone::warning : ToastTone::success, title, detail, [weak, path] {
+		with_live(weak, "showing a clip", [&path](Impl &impl) { impl.reveal_path(path); });
+	});
+}
+
+// --- the list, its filters and the preview --------------------------------------------------------------------------
 
 void ClipDock::Impl::after_list_change()
 {
-	rebuild_game_combo();
+	rebuild_chips();
 	update_empty_state();
+	update_summary();
+	update_preview();
 }
 
-void ClipDock::Impl::rebuild_game_combo()
+void ClipDock::Impl::rebuild_chips()
 {
-	const ClipQuery query = model_->query();
 	const ClipIndex &index = model_->index();
-	bool choice_gone = false;
-	{
-		// Refilling the combo would otherwise filter the list at every step. The choice is applied once, below.
-		const QSignalBlocker blocker(game_combo_);
-		game_combo_->clear();
-		// "All games" has no data: an invalid QVariant means no game filter.
-		game_combo_->addItem(module_text("Dock.Filter.AllGames"));
-		for (const std::string &game : index.games()) {
-			const QString name = QString::fromStdString(game);
-			game_combo_->addItem(name, name);
-		}
-		// "Not sorted" filters on "": the clips directly in the folder.
-		if (index.has_unfiled())
-			game_combo_->addItem(module_text("Dock.Game.Unfiled"), QString());
+	const int current = chips_->current();
+	const std::optional<std::string> chosen = current >= 0 && current < static_cast<int>(chip_games_.size())
+							  ? chip_games_[static_cast<std::size_t>(current)]
+							  : std::nullopt;
 
-		// The choice is kept while its game still exists. Item 0 is "All games", so the search starts at item
-		// 1.
-		int choice = 0;
-		if (query.game_folder) {
-			const QString wanted = QString::fromStdString(*query.game_folder);
-			choice = -1;
-			for (int i = 1; i < game_combo_->count() && choice < 0; ++i) {
-				if (game_combo_->itemData(i).toString() == wanted)
-					choice = i;
-			}
-			if (choice < 0) {
-				choice = 0;
-				choice_gone = true;
-			}
-		}
-		game_combo_->setCurrentIndex(choice);
+	std::map<std::string, int> counts;
+	for (const ClipEntry &clip : index.clips())
+		counts[clip.game_folder] += 1;
+
+	std::vector<ChipBar::Entry> entries;
+	chip_games_.clear();
+	entries.push_back({module_text("Dock.Filter.All"), static_cast<int>(index.clips().size())});
+	chip_games_.push_back(std::nullopt);
+	for (const std::string &game : index.games()) {
+		entries.push_back({utf8(game), counts[game]});
+		chip_games_.push_back(game);
 	}
-	// The list still filters on the game that went away, so the filter follows the combo back to all games.
+	// "Not sorted" filters on "": the clips directly in the folder.
+	if (index.has_unfiled()) {
+		entries.push_back({module_text("Dock.Game.Unfiled"), counts[std::string()]});
+		chip_games_.push_back(std::string());
+	}
+
+	// The choice is kept while its chip still exists.
+	int keep = 0;
+	bool choice_gone = false;
+	if (chosen) {
+		const auto at = std::find(chip_games_.begin(), chip_games_.end(), chosen);
+		if (at != chip_games_.end())
+			keep = static_cast<int>(at - chip_games_.begin());
+		else
+			choice_gone = true;
+	}
+	chips_->set_entries(entries, keep);
+	// A lone "All 0" says nothing that the empty list doesn't.
+	chips_->setVisible(!index.clips().empty());
+	// The list still filters on the game that went away, so the filter follows the chips back to All.
 	if (choice_gone)
 		apply_filter();
 }
 
-// Builds the query from the two filter widgets. The selection is carried over by path, because the filter resets the
-// model.
+// Builds the query from the filters. The selection is carried over by path, because the filter resets the model.
 void ClipDock::Impl::apply_filter()
 {
 	ClipQuery query;
-	const QVariant game = game_combo_->currentData();
-	if (game.isValid())
-		query.game_folder = game.toString().toUtf8().toStdString();
+	const int chip = chips_->current();
+	if (chip >= 0 && chip < static_cast<int>(chip_games_.size()))
+		query.game_folder = chip_games_[static_cast<std::size_t>(chip)];
+	// The segments are All, then the kinds in ClipKind's order.
+	const int kind = kinds_->current();
+	if (kind > 0)
+		query.kind = static_cast<ClipKind>(kind - 1);
 	query.search = search_->text().toUtf8().toStdString();
 	const std::optional<std::filesystem::path> selected = selected_path();
 	model_->set_query(std::move(query));
 	select_path(selected);
+	if (layout_ == DockLayout::wide && !list_->currentIndex().isValid())
+		select_first_clip();
 	update_empty_state();
+	update_preview();
 }
 
 void ClipDock::Impl::update_empty_state()
 {
-	if (model_->rowCount() > 0) {
+	if (model_->clip_count() > 0) {
 		stack_->setCurrentWidget(list_);
 		return;
 	}
 	// Two messages: nothing has been scanned into the index, or the filter hides everything in it.
-	empty_label_->setText(model_->index().clips().empty() ? module_text("Dock.Empty.NoClips")
-							      : module_text("Dock.Empty.NoMatch"));
-	stack_->setCurrentWidget(empty_label_);
+	if (model_->index().clips().empty())
+		empty_->set_texts(DockIcon::replay, module_text("Dock.Empty.Title"), module_text("Dock.Empty.Body"));
+	else
+		empty_->set_texts(DockIcon::search, module_text("Dock.Empty.NoMatch"),
+				  module_text("Dock.Empty.NoMatchHint"));
+	stack_->setCurrentWidget(empty_);
+}
+
+void ClipDock::Impl::update_summary()
+{
+	const ClipIndex &index = model_->index();
+	if (index.clips().empty()) {
+		summary_->set_text(QString());
+		return;
+	}
+	if (truncated_) {
+		summary_->set_text(
+			module_text("Dock.Footer.Truncated").arg(static_cast<qulonglong>(index.clips().size())));
+		return;
+	}
+	std::uintmax_t bytes = 0;
+	for (const ClipEntry &clip : index.clips())
+		bytes += clip.size;
+	summary_->set_text(summary_text(index.clips().size(), bytes));
+}
+
+void ClipDock::Impl::update_preview()
+{
+	if (layout_ != DockLayout::wide)
+		return;
+	const QModelIndex current = list_->currentIndex();
+	const ClipEntry *clip = current.isValid() ? model_->clip_at(current.row()) : nullptr;
+	if (!clip) {
+		preview_->show_nothing();
+		return;
+	}
+	const QDateTime modified = current.data(ClipListModel::ModifiedRole).toDateTime();
+	PreviewInfo info;
+	info.path_utf8 = path_to_utf8(clip->path);
+	info.size = clip->size;
+	info.modified_ms = modified.toMSecsSinceEpoch();
+	info.kind = static_cast<int>(clip->kind);
+	info.title = clip_title(*clip, true);
+	info.where = where_text(clip->path);
+	info.game = game_label(clip->game_folder);
+	info.kind_text = kind_name(clip->kind);
+	info.saved = QLocale::system().toString(modified, QLocale::ShortFormat);
+	info.size_text = utf8(format_size(clip->size));
+	info.fallback = current.data(Qt::DecorationRole).value<QPixmap>();
+	preview_->show_clip(info);
+}
+
+void ClipDock::Impl::select_first_clip()
+{
+	for (int row = 0; row < model_->rowCount(); ++row) {
+		if (model_->clip_at(row)) {
+			list_->setCurrentIndex(model_->index(row, 0));
+			return;
+		}
+	}
+}
+
+void ClipDock::Impl::refresh_day()
+{
+	// A new day regroups the clips (a reset), so the selection is carried over by path.
+	const std::optional<std::filesystem::path> selected = selected_path();
+	if (model_->refresh_day())
+		select_path(selected);
 }
 
 std::optional<ClipEntry> ClipDock::Impl::selected_clip() const
@@ -711,6 +1169,16 @@ void ClipDock::Impl::select_path(const std::optional<std::filesystem::path> &pat
 		list_->setCurrentIndex(list_->model()->index(row, 0));
 }
 
+// The folder a clip is in, as "D:\Clips › Elden Ring › 2026-10": the clips folder in the system's form, then the
+// folders below it.
+QString ClipDock::Impl::where_text(const std::filesystem::path &path) const
+{
+	QString where = QDir::toNativeSeparators(utf8(path_to_utf8(shared_->base)));
+	for (const std::string &folder : folders_below(shared_->base, path))
+		where += path_separator() + utf8(folder);
+	return where;
+}
+
 // --- the clip actions -----------------------------------------------------------------------------------------------
 
 void ClipDock::Impl::show_context_menu(const QPoint &pos)
@@ -724,7 +1192,11 @@ void ClipDock::Impl::show_context_menu(const QPoint &pos)
 	// A copy: the menu runs its own event loop, and the model may change while it is open.
 	const ClipEntry clip = *found;
 	list_->setCurrentIndex(index);
+	show_clip_menu(clip, list_->viewport()->mapToGlobal(pos));
+}
 
+void ClipDock::Impl::show_clip_menu(const ClipEntry &clip, const QPoint &global)
+{
 	// No parent, so the menu is destroyed when this function returns and never by its parent.
 	QMenu menu;
 	QAction *open = menu.addAction(module_text("Dock.Action.Open"));
@@ -736,7 +1208,7 @@ void ClipDock::Impl::show_context_menu(const QPoint &pos)
 	QAction *recycle = menu.addAction(module_text("Dock.Action.Recycle"));
 
 	const std::weak_ptr<Shared> weak = shared_;
-	QAction *chosen = menu.exec(list_->viewport()->mapToGlobal(pos));
+	QAction *chosen = menu.exec(global);
 	// The menu's event loop may have stopped or deleted the dock, so the dock is looked up again before anything
 	// else.
 	Impl *self = live_impl(weak);
@@ -745,7 +1217,7 @@ void ClipDock::Impl::show_context_menu(const QPoint &pos)
 	if (chosen == open)
 		self->open_clip(clip);
 	else if (chosen == reveal)
-		self->reveal_clip(clip);
+		self->reveal_path(clip.path);
 	else if (chosen == rename)
 		self->rename_clip(clip);
 	else if (chosen == move)
@@ -754,14 +1226,59 @@ void ClipDock::Impl::show_context_menu(const QPoint &pos)
 		self->recycle_clip(clip);
 }
 
+void ClipDock::Impl::on_row_action(const QModelIndex &index, ClipListDelegate::Action action, const QPoint &global)
+{
+	const ClipEntry *found = model_->clip_at(index.row());
+	if (!found)
+		return;
+	// A copy, as above: the menu and the Shell calls outlive this row.
+	const ClipEntry clip = *found;
+	switch (action) {
+	case ClipListDelegate::Action::open:
+		open_clip(clip);
+		break;
+	case ClipListDelegate::Action::reveal:
+		reveal_path(clip.path);
+		break;
+	case ClipListDelegate::Action::more:
+		list_->setCurrentIndex(index);
+		show_clip_menu(clip, global);
+		break;
+	}
+}
+
+void ClipDock::Impl::on_preview_action(PreviewAction action)
+{
+	const std::optional<ClipEntry> clip = selected_clip();
+	if (!clip)
+		return;
+	switch (action) {
+	case PreviewAction::open:
+		open_clip(*clip);
+		break;
+	case PreviewAction::reveal:
+		reveal_path(clip->path);
+		break;
+	case PreviewAction::rename:
+		rename_clip(*clip);
+		break;
+	case PreviewAction::move:
+		move_clip(*clip);
+		break;
+	case PreviewAction::recycle:
+		recycle_clip(*clip);
+		break;
+	}
+}
+
 void ClipDock::Impl::open_clip(const ClipEntry &clip)
 {
 	shell_ops().open(path_to_utf8(clip.path), report_failure("open failed"));
 }
 
-void ClipDock::Impl::reveal_clip(const ClipEntry &clip)
+void ClipDock::Impl::reveal_path(const std::filesystem::path &path)
 {
-	shell_ops().reveal(path_to_utf8(clip.path), report_failure("reveal failed"));
+	shell_ops().reveal(path_to_utf8(path), report_failure("reveal failed"));
 }
 
 void ClipDock::Impl::rename_clip(const ClipEntry &clip)
@@ -1002,6 +1519,14 @@ void ClipDock::on_clip_sorted(const ClipSorted &clip)
 	guarded("clip sorted in the clip browser", [this, &clip] { impl_->on_clip_sorted(clip); });
 }
 
+void ClipDock::on_theme_changed()
+{
+	guarded("theme change in the clip browser", [this] {
+		if (impl_->live())
+			impl_->refresh_look();
+	});
+}
+
 BannerArea *ClipDock::banners()
 {
 	return impl_->live() ? impl_->banners_ : nullptr;
@@ -1017,6 +1542,27 @@ void ClipDock::hideEvent(QHideEvent *event)
 {
 	QWidget::hideEvent(event);
 	guarded("hiding the clip browser", [this] { impl_->on_hidden(); });
+}
+
+void ClipDock::resizeEvent(QResizeEvent *event)
+{
+	QWidget::resizeEvent(event);
+	guarded("resizing the clip browser", [this] {
+		if (impl_ && impl_->live())
+			impl_->on_resized();
+	});
+}
+
+void ClipDock::changeEvent(QEvent *event)
+{
+	QWidget::changeEvent(event);
+	// The base class can send events while the Impl is still being made.
+	if (!impl_ || (event->type() != QEvent::PaletteChange && event->type() != QEvent::StyleChange))
+		return;
+	guarded("restyling the clip browser", [this] {
+		if (impl_->live())
+			impl_->refresh_look();
+	});
 }
 
 ClipDock *register_clip_dock(const GameState &state, SettingsStore &settings, FileMover &mover)

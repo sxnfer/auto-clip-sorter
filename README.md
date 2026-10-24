@@ -5,7 +5,7 @@
 Clip Atlas is a native OBS Studio plugin for Windows. It sorts your replays, recordings and
 screenshots into per-game folders automatically, with no Python install and no setup.
 
-> **Status:** version 1.0.0 is out: download it from the
+> **Status:** version 1.1.0 is out: download it from the
 > [Releases page](https://github.com/sxnfer/auto-clip-sorter/releases/latest) (see
 > [`docs/install.md`](docs/install.md)). The built-in games list, the rules editor and the
 > full settings pages (milestone M4) come later. The original Python script lives in
@@ -32,11 +32,17 @@ screenshots into per-game folders automatically, with no Python install and no s
   choose, once a replay has been saved and sorted. Windows plays the sound through its default
   output, which OBS's Desktop Audio captures, so viewers and later clips can hear it. This
   release includes no sound file.
-- **Clip browser dock.** Open it with **Docks → Clip Atlas**. It shows:
-  - a header with the current game, the Replay Buffer state and an **Auto-sort** switch;
+- **Clip browser dock.** Open it with **Docks → Clip Atlas**. It follows your OBS theme and fits
+  wherever you put it: a list in a side column, a strip of cards in the short bottom row, or a
+  list with a large preview when you float it big. It shows:
+  - the game being played, the Replay Buffer's state, an **Auto-sort** switch and a
+    **Save replay** button;
   - banners when something needs attention, such as a missing clips folder;
-  - a list of clips with thumbnails from Windows, a game filter and a search box;
-  - right-click actions on a clip: **Open**, **Show in folder**, **Rename…**,
+  - your clips grouped by day (Today, Yesterday, Previous 7 days, then by month), with
+    thumbnails from Windows, game chips with counts, a type filter (Replays, Recordings,
+    Screenshots) and a search box (**Ctrl+F**);
+  - a note after each save that says where the clip was filed, with **Show** to open its folder;
+  - actions on a clip, on hover or with a right-click: **Open**, **Show in folder**, **Rename…**,
     **Move to game…** and **Move to Recycle Bin…**. Clip Atlas never deletes a clip for good
     itself.
 - **Auto-sort hotkey.** In OBS, open **Settings → Hotkeys** and bind a key to

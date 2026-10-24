@@ -113,7 +113,10 @@ Thumbnail make_thumbnail(const std::string &path_utf8, int size_px)
 			return {};
 
 		HBITMAP bitmap = nullptr;
-		const HRESULT got = factory->GetImage(SIZE{size_px, size_px}, SIIGBF_RESIZETOFIT, &bitmap);
+		// Thumbnails only: without one, Windows would hand back the file type's icon, which the dock's pictures,
+		// cropped to fill their box, would cut apart. A failure shows the dock's own tile for the clip's type.
+		const HRESULT got =
+			factory->GetImage(SIZE{size_px, size_px}, SIIGBF_RESIZETOFIT | SIIGBF_THUMBNAILONLY, &bitmap);
 		GdiObjectGuard bitmap_guard(bitmap);
 		if (FAILED(got) || !bitmap)
 			return {};

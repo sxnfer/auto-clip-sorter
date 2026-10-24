@@ -419,6 +419,8 @@ std::vector<ClipEntry> ClipIndex::query(const ClipQuery &query) const
 	for (const ClipEntry &clip : clips_) {
 		if (query.game_folder && clip.game_folder != *query.game_folder)
 			continue;
+		if (query.kind && clip.kind != *query.kind)
+			continue;
 		const std::string name = ascii_lower(clip.file_name);
 		const std::string folder = ascii_lower(clip.game_folder);
 		// Each term may match either field: "replay cs2" finds a file named "Replay ..." in folder "CS2".
