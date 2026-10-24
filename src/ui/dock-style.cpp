@@ -135,6 +135,13 @@ QColor notice_fill(const QPalette &palette)
 	return mix_colors(base, palette.color(QPalette::Text), 0.06);
 }
 
+QColor elevated_fill(const QPalette &palette)
+{
+	if (is_light_palette(palette))
+		return palette.color(QPalette::Base);
+	return mix_colors(palette.color(QPalette::Base), palette.color(QPalette::Text), 0.08);
+}
+
 QColor accent_text(const QPalette &palette)
 {
 	const QColor accent = palette.color(QPalette::Highlight);
@@ -286,6 +293,12 @@ void paint_dock_icon(QPainter &painter, DockIcon icon, const QRectF &box, const 
 		line(painter, 4.0, 7.0, 20.0, 7.0);
 		painter.drawPath(polyline({{9.0, 7.0}, {9.0, 4.5}, {15.0, 4.5}, {15.0, 7.0}}));
 		painter.drawPath(polyline({{6.5, 7.0}, {7.5, 19.5}, {16.5, 19.5}, {17.5, 7.0}}));
+		break;
+	case DockIcon::chevron_down:
+		painter.drawPath(polyline({{7.0, 9.5}, {12.0, 14.5}, {17.0, 9.5}}));
+		break;
+	case DockIcon::chevron_up:
+		painter.drawPath(polyline({{7.0, 14.5}, {12.0, 9.5}, {17.0, 14.5}}));
 		break;
 	}
 	painter.restore();

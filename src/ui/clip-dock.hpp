@@ -4,16 +4,20 @@
 // docs/handover/M3-dock-spec.md. The same widgets are arranged three ways,
 // by choose_dock_layout() on the dock's size; resizeEvent queues the change,
 // and the layout is rebuilt outside it:
-//   column (a side dock):  StatusHeader (column), BannerArea, the search
-//     QLineEdit, ChipBar (2 rows), SegmentBar, the list, a hairline, the footer.
-//   row (the short bottom row): a rail on the left with StatusHeader (rail)
-//     and the footer; on the right BannerArea, ChipBar (1 row) beside the
-//     search field, and the list as a sideways strip of cards (no headers).
-//     The type filter is hidden and reset to All, so no hidden filter is left on.
-//   wide (a large, usually floating window): StatusHeader (wide) across the
-//     top; the filters and the list on the left; ClipPreview of the current
-//     clip on the right (entering it selects the first clip when none is);
-//     the footer across the bottom.
+//   column (a side dock):  StatusHeader (column), ActivityStatus, BannerArea,
+//     the search QLineEdit, ChipBar (2 rows), SegmentBar, the list, a
+//     hairline, the footer.
+//   row (the short bottom row): a rail on the left with StatusHeader (rail),
+//     ActivityStatus and the footer; on the right BannerArea, ChipBar (1 row)
+//     beside the search field, and the list as a sideways strip of cards (no
+//     headers). The type filter is hidden and reset to All, so no hidden
+//     filter is left on.
+//   wide (a large, usually floating window): StatusHeader (wide) and
+//     ActivityStatus across the top; the filters and the list on the left;
+//     ClipPreview of the current clip on the right (entering it selects the
+//     first clip when none is); the footer across the bottom.
+// ActivityStatus is the filing activity pill (docs/handover/activity-status.md);
+// on_activity() feeds it.
 // The list is a ClipListView over a ClipListModel; when there is nothing to
 // show, a QStackedWidget swaps it for an EmptyState (Dock.Empty.Title and
 // .Body with no clips at all, Dock.Empty.NoMatch and .NoMatchHint when the
@@ -21,7 +25,8 @@
 // index's clip count and size, or Dock.Footer.Truncated when the last scan
 // hit the cap) and GhostButtons for Dock.OpenFolder, Dock.Refresh and
 // Dock.Settings. A DockToast floats over the bottom of the list (the rail in
-// the row layout).
+// the row layout, below the activity pill, when the toast's text fits there;
+// otherwise the strip).
 //
 // Filters: the chips are Dock.Filter.All with the index's clip count, each
 // ClipIndex::games() entry with its count, then Dock.Game.Unfiled when
@@ -158,6 +163,8 @@ public:
 	void on_clip_sorted(const ClipSorted &clip);
 	// OBS_FRONTEND_EVENT_THEME_CHANGED.
 	void on_theme_changed();
+	// A filing step, from ClipFiler on the UI thread, for the activity pill.
+	void on_activity(const ActivityEvent &event);
 
 	// For the update banner (M5). nullptr after stop().
 	BannerArea *banners();

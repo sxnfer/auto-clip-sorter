@@ -634,6 +634,7 @@ struct FileMover::Job {
 	fs::path source;
 	fs::path dest_dir;
 	MoveCallback move_cb;
+	std::function<void()> on_started;
 
 	fs::path file;
 	std::chrono::milliseconds stable_for{0};
@@ -656,13 +657,15 @@ FileMover::~FileMover()
 	shutdown(false);
 }
 
-JobId FileMover::move(const fs::path &source, const fs::path &dest_dir, MoveCallback callback)
+JobId FileMover::move(const fs::path &source, const fs::path &dest_dir, MoveCallback callback,
+		      std::function<void()> on_started)
 {
 	auto job = std::make_unique<Job>();
 	job->kind = Job::Kind::move;
 	job->source = source;
 	job->dest_dir = dest_dir;
 	job->move_cb = std::move(callback);
+	job->on_started = std::move(on_started);
 
 	JobId id = 0;
 	bool accepted = false;
@@ -796,6 +799,12 @@ void FileMover::run()
 		// becomes a failed result, or copied_source_kept when the copy was already
 		// published, instead of killing the worker.
 		if (job->kind == Job::Kind::move) {
+			try {
+				if (job->on_started)
+					job->on_started();
+			} catch (...) {
+				// Observation must never change file handling or suppress its result.
+			}
 			MoveResult result;
 			result.id = job->id;
 			result.source = job->source;

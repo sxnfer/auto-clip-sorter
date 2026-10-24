@@ -4,6 +4,13 @@ All notable changes to Clip Atlas are listed here. The format follows Keep a Cha
 
 ## [1.1.0] - 2026-10-24
 
+### Added
+
+- An activity pill under the dock's header shows what Clip Atlas is doing with your latest save:
+  waiting for the file to settle, sorting it, or done, with a timer. Click it (or press **Enter**
+  or **Space**) for each file's steps and the recent saves; **Esc** closes them. A save that
+  couldn't be sorted keeps its amber warning until the next save, and its details say why.
+
 ### Changed
 
 #### M6: The dock, redrawn ("Native Plus")

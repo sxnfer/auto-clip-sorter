@@ -50,6 +50,8 @@ public:
 	void dismiss();
 	// The area the toast may cover, in the parent's coordinates.
 	void set_area(const QRect &area);
+	// The height the toast's current texts need in an area this wide, shadow included.
+	int needed_height(int area_width);
 	// Hides the toast at once and stops its timers. Idempotent.
 	void shutdown();
 
@@ -60,6 +62,7 @@ protected:
 	void changeEvent(QEvent *event) override;
 
 private:
+	int height_for(int width);
 	void reposition();
 	void fade_to(qreal opacity);
 	void run_action();

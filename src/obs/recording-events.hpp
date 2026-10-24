@@ -103,6 +103,7 @@ public:
 	void on_game_changed();
 
 	void set_clip_sorted_callback(ClipSortedCallback callback);
+	void set_activity_callback(ActivityCallback callback);
 
 private:
 	struct Impl;

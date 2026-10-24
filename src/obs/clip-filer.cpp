@@ -126,8 +126,34 @@ struct ClipFiler::Shared {
 	// Holds only wait_stable jobs. A remux wait can last minutes, and this keeps it from delaying moves.
 	FileMover waits;
 	ClipSortedCallback on_clip_sorted;
+	ActivityCallback on_activity;
 	// Set on the UI thread by stop(). Nothing is logged, reported or queued after that.
 	bool stopped = false;
+
+	// Observers cannot interrupt filing, including when a listener replaces itself.
+	void notify(const ActivityEvent &event)
+	{
+		try {
+			const ActivityCallback listener = on_activity;
+			if (listener)
+				listener(event);
+		} catch (...) {
+			obs_log(LOG_WARNING, "activity listener failed");
+		}
+	}
+
+	void phase(const Save &save, std::size_t index, ActivityPhase value, bool stable = false,
+		   ActivityNotice notice = ActivityNotice::none, const std::string &detail = {})
+	{
+		ActivityEvent event;
+		event.save_id = save.id;
+		event.file_index = index;
+		event.phase = value;
+		event.stability_confirmed = stable;
+		event.notice = notice;
+		event.detail = detail;
+		notify(event);
+	}
 
 	// Runs `fn` with the live Shared, on the UI thread, if the filer still exists and has not stopped. The lock is taken
 	// and released here, so the last reference is never dropped on a worker thread.
@@ -139,17 +165,18 @@ struct ClipFiler::Shared {
 	}
 
 	// A file OBS will not remux: the wait only guards against an unfinished write.
-	void queue_plain(const std::weak_ptr<Shared> &self, const Save &save, const fs::path &file)
+	void queue_plain(const std::weak_ptr<Shared> &self, const Save &save, const fs::path &file, std::size_t index)
 	{
 		waits.wait_stable(file, kPlainStableFor, kPlainStableTimeout,
-				  [self, save, file](const StableResult &result) {
+				  [self, save, file, index](const StableResult &result) {
 					  // Cancelled means the filer is stopping, so nothing moves. Stable and timed out both move the file,
 					  // because OBS has finished writing it by then.
 					  if (result.status == StableStatus::cancelled)
 						  return;
-					  run_on_ui([self, save, file]() {
+					  const bool stable = result.status == StableStatus::stable;
+					  run_on_ui([self, save, file, index, stable]() {
 						  if_running(self, [&](Shared &running) {
-							  running.queue_move(self, save, file);
+							  running.queue_move(self, save, file, index, stable);
 						  });
 					  });
 				  });
@@ -157,15 +184,15 @@ struct ClipFiler::Shared {
 
 	// OBS is remuxing, so the original must not move until the copy has settled.
 	void queue_remux(const std::weak_ptr<Shared> &self, const Save &save, const fs::path &file,
-			 const fs::path &remuxed)
+			 const fs::path &remuxed, std::size_t index)
 	{
 		waits.wait_stable(
 			remuxed, kRemuxStableFor, remux_timeout(save.kind),
-			[self, save, file, remuxed](const StableResult &result) {
+			[self, save, file, remuxed, index](const StableResult &result) {
 				if (result.status == StableStatus::cancelled)
 					return;
 				const bool settled = result.status == StableStatus::stable;
-				run_on_ui([self, save, file, remuxed, settled]() {
+				run_on_ui([self, save, file, remuxed, settled, index]() {
 					if_running(self, [&](Shared &running) {
 						if (!settled) {
 							obs_log(LOG_WARNING,
@@ -173,36 +200,63 @@ struct ClipFiler::Shared {
 								"moving only the original",
 								utf8_of(remuxed).c_str());
 						}
-						running.queue_move(self, save, file);
+						if (!settled)
+							running.phase(save, index + 1, ActivityPhase::unavailable,
+								      false, ActivityNotice::remux_unavailable);
+						running.queue_move(self, save, file, index, settled);
 						if (settled)
-							running.queue_move(self, save, remuxed);
+							running.queue_move(self, save, remuxed, index + 1, true);
 					});
 				});
 			});
 	}
 
 	// Queues `file` on the plugin's mover, into the save's folder. The result comes back to the UI thread.
-	void queue_move(const std::weak_ptr<Shared> &self, const Save &save, const fs::path &file)
+	void queue_move(const std::weak_ptr<Shared> &self, const Save &save, const fs::path &file, std::size_t index,
+			bool stable)
 	{
-		mover.move(file, save.dest, [self, save](const MoveResult &result) {
-			// Runs on the mover's worker thread, or on this thread if the mover has already shut down. Only plain
-			// values are copied out of the result.
-			ClipSorted clip;
-			clip.kind = save.kind;
-			clip.status = result.status;
-			clip.original_path = result.source;
-			if (result.status == MoveStatus::moved || result.status == MoveStatus::copied_source_kept)
-				clip.final_path = result.final_path;
-			clip.game_key = save.game.key;
-			clip.game_name = save.game.name;
-			clip.error = result.error;
-			clip.save_id = save.id;
-			// Where the clip is now, for the log. After a failed move that kept a partial copy, that is the partial.
-			const fs::path where = result.final_path.empty() ? result.source : result.final_path;
-			run_on_ui([self, clip = std::move(clip), where]() {
-				if_running(self, [&clip, &where](Shared &running) { running.report(clip, where); });
+		phase(save, index, ActivityPhase::queued, stable,
+		      stable ? ActivityNotice::none : ActivityNotice::stability_timeout);
+		mover.move(
+			file, save.dest,
+			[self, save, index](const MoveResult &result) {
+				// Runs on the mover's worker thread, or on this thread if the mover has already shut down. Only plain
+				// values are copied out of the result.
+				ClipSorted clip;
+				clip.kind = save.kind;
+				clip.status = result.status;
+				clip.original_path = result.source;
+				if (result.status == MoveStatus::moved ||
+				    result.status == MoveStatus::copied_source_kept)
+					clip.final_path = result.final_path;
+				clip.game_key = save.game.key;
+				clip.game_name = save.game.name;
+				clip.error = result.error;
+				clip.save_id = save.id;
+				// Where the clip is now, for the log. After a failed move that kept a partial copy, that is the partial.
+				const fs::path where = result.final_path.empty() ? result.source : result.final_path;
+				run_on_ui([self, save, index, clip = std::move(clip), where]() {
+					if_running(self, [&](Shared &running) {
+						const ActivityPhase value =
+							clip.status == MoveStatus::cancelled ? ActivityPhase::cancelled
+							: clip.status == MoveStatus::failed  ? ActivityPhase::failed
+											     : ActivityPhase::completed;
+						running.phase(save, index, value, false,
+							      clip.status == MoveStatus::copied_source_kept
+								      ? ActivityNotice::original_kept
+								      : ActivityNotice::none,
+							      clip.error);
+						running.report(clip, where);
+					});
+				});
+			},
+			[self, save, index] {
+				run_on_ui([self, save, index] {
+					if_running(self, [&](Shared &running) {
+						running.phase(save, index, ActivityPhase::moving);
+					});
+				});
 			});
-		});
 	}
 
 	// Logs one file's outcome and passes it to the listener. UI thread.
@@ -270,12 +324,31 @@ bool ClipFiler::file(ClipKind kind, const std::vector<ClipFile> &files, const Cl
 					    LayoutOptions{settings.monthly_folders, settings.unsorted_folder});
 		save.id = g_next_save_id.fetch_add(1);
 
+		ActivityEvent accepted;
+		accepted.save_id = save.id;
+		accepted.accepted = true;
+		accepted.kind = kind;
+		accepted.game = game.name;
+		for (const ClipFile &clip : files) {
+			ActivityFile original;
+			original.path = utf8_of(clip.file);
+			accepted.files.push_back(original);
+			if (!clip.remuxed.empty()) {
+				ActivityFile remuxed;
+				remuxed.path = utf8_of(clip.remuxed);
+				remuxed.remuxed = true;
+				accepted.files.push_back(remuxed);
+			}
+		}
+		shared.notify(accepted);
 		const std::weak_ptr<Shared> self = shared_;
+		std::size_t index = 0;
 		for (const ClipFile &clip : files) {
 			if (clip.remuxed.empty())
-				shared.queue_plain(self, save, clip.file);
+				shared.queue_plain(self, save, clip.file, index);
 			else
-				shared.queue_remux(self, save, clip.file, clip.remuxed);
+				shared.queue_remux(self, save, clip.file, clip.remuxed, index);
+			index += clip.remuxed.empty() ? 1 : 2;
 		}
 		return true;
 	} catch (const std::exception &e) {
@@ -300,6 +373,11 @@ void ClipFiler::stop()
 void ClipFiler::set_clip_sorted_callback(ClipSortedCallback callback)
 {
 	shared_->on_clip_sorted = std::move(callback);
+}
+
+void ClipFiler::set_activity_callback(ActivityCallback callback)
+{
+	shared_->on_activity = std::move(callback);
 }
 
 } // namespace clip_atlas

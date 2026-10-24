@@ -7,6 +7,7 @@
 // clip-filer.cpp uses this design.
 #include "clip-dock.hpp"
 
+#include "activity-status.hpp"
 #include "banner-area.hpp"
 #include "clip-display.hpp"
 #include "clip-index.hpp"
@@ -278,6 +279,7 @@ struct ClipDock::Impl {
 	std::shared_ptr<Shared> shared_;
 
 	StatusHeader *header_ = nullptr;
+	ActivityStatus *activity_ = nullptr;
 	BannerArea *banners_ = nullptr;
 	QLineEdit *search_ = nullptr;
 	QAction *search_icon_ = nullptr;
@@ -346,6 +348,7 @@ ClipDock::Impl::Impl(ClipDock *dock, const GameState &state, SettingsStore &sett
 void ClipDock::Impl::build_widgets()
 {
 	header_ = new StatusHeader(dock_);
+	activity_ = new ActivityStatus(dock_);
 	banners_ = new BannerArea(dock_);
 
 	search_ = new QLineEdit(dock_);
@@ -520,7 +523,7 @@ void ClipDock::Impl::apply_layout(DockLayout layout)
 	layout_ = layout;
 	// The old layout goes, with its nested layouts; the widgets stay, children of the dock.
 	delete dock_->layout();
-	for (QWidget *widget : {static_cast<QWidget *>(header_), footer_}) {
+	for (QWidget *widget : {static_cast<QWidget *>(header_), static_cast<QWidget *>(activity_), footer_}) {
 		widget->setMinimumWidth(0);
 		widget->setMaximumWidth(QWIDGETSIZE_MAX);
 	}
@@ -569,6 +572,7 @@ void ClipDock::Impl::apply_layout(DockLayout layout)
 
 void ClipDock::Impl::layout_column()
 {
+	activity_->setContentsMargins(6, 0, 6, 8);
 	banners_->setContentsMargins(10, 0, 10, 8);
 	auto *filters = new QVBoxLayout;
 	filters->setContentsMargins(10, 0, 10, 10);
@@ -581,6 +585,7 @@ void ClipDock::Impl::layout_column()
 	root->setContentsMargins(0, 0, 0, 0);
 	root->setSpacing(0);
 	root->addWidget(header_);
+	root->addWidget(activity_);
 	root->addWidget(banners_);
 	root->addLayout(filters);
 	root->addWidget(line_top_);
@@ -594,14 +599,17 @@ void ClipDock::Impl::layout_row()
 	// The rail is as wide as the header needs at the theme's font, within reason.
 	const int rail = std::clamp(qRound(QFontMetrics(dock_->font()).height() * 14.5), 230, 320);
 	header_->setFixedWidth(rail);
+	activity_->setFixedWidth(rail);
 	footer_->setFixedWidth(rail);
 	search_->setMaximumWidth(kRowSearchWidth);
+	activity_->setContentsMargins(6, 0, 6, 6);
 	banners_->setContentsMargins(0, 0, 0, 2);
 
 	auto *rail_column = new QVBoxLayout;
 	rail_column->setContentsMargins(0, 0, 0, 0);
 	rail_column->setSpacing(0);
 	rail_column->addWidget(header_);
+	rail_column->addWidget(activity_);
 	rail_column->addStretch(1);
 	rail_column->addWidget(footer_);
 
@@ -627,6 +635,7 @@ void ClipDock::Impl::layout_row()
 
 void ClipDock::Impl::layout_wide()
 {
+	activity_->setContentsMargins(8, 0, 8, 8);
 	banners_->setContentsMargins(12, 0, 12, 8);
 	auto *list_column = new QVBoxLayout;
 	list_column->setContentsMargins(10, 10, 6, 0);
@@ -647,6 +656,7 @@ void ClipDock::Impl::layout_wide()
 	root->setContentsMargins(0, 0, 0, 0);
 	root->setSpacing(0);
 	root->addWidget(header_);
+	root->addWidget(activity_);
 	root->addWidget(banners_);
 	root->addWidget(line_top_);
 	root->addLayout(body, 1);
@@ -678,9 +688,11 @@ void ClipDock::Impl::place_toast()
 	// Over the bottom of the list, or of the rail in the bottom row, which has the room the strip lacks.
 	QRect area(stack_->mapTo(dock_, QPoint(0, 0)), stack_->size());
 	if (layout_ == DockLayout::row) {
-		const int top = header_->geometry().bottom() + 1;
+		// Below the activity pill, which sits under the header in the rail. A rail too short for the toast's text
+		// leaves it over the strip, rather than over the pill and the header.
+		const int top = activity_->geometry().bottom() + 1;
 		const QRect rail(0, top, header_->width(), footer_->geometry().top() - top);
-		if (rail.height() >= 60)
+		if (rail.height() >= toast_->needed_height(rail.width()))
 			area = rail;
 	}
 	toast_->set_area(area);
@@ -713,6 +725,7 @@ void ClipDock::Impl::stop()
 		return;
 	// Set first, so every result that runs from here on finds the dock stopped.
 	shared_->stopped = true;
+	activity_->stop();
 	shared_->queue.shutdown();
 	day_timer_->stop();
 	model_->shutdown();
@@ -806,12 +819,13 @@ void ClipDock::Impl::on_clip_sorted(const ClipSorted &clip)
 		original.kind = clip.kind;
 		const std::filesystem::path path = clip.original_path;
 		const std::weak_ptr<Shared> weak = shared_;
-		place_toast();
 		toast_->show_toast(ToastTone::warning, module_text("Dock.Toast.Failed").arg(clip_title(original, true)),
 				   utf8(clip.error), [weak, path] {
 					   with_live(weak, "showing a clip",
 						     [&path](Impl &impl) { impl.reveal_path(path); });
 				   });
+		// Placed once it has its text: in the bottom row, where it goes depends on how tall that text is.
+		place_toast();
 		break;
 	}
 	case MoveStatus::cancelled:
@@ -983,10 +997,11 @@ void ClipDock::Impl::toast_filed(const ClipEntry &clip, MoveStatus status)
 			       utf8(format_size(clip.size));
 	const std::filesystem::path path = clip.path;
 	const std::weak_ptr<Shared> weak = shared_;
-	place_toast();
 	toast_->show_toast(copied ? ToastTone::warning : ToastTone::success, title, detail, [weak, path] {
 		with_live(weak, "showing a clip", [&path](Impl &impl) { impl.reveal_path(path); });
 	});
+	// Placed once it has its text: in the bottom row, where it goes depends on how tall that text is.
+	place_toast();
 }
 
 // --- the list, its filters and the preview --------------------------------------------------------------------------
@@ -1512,6 +1527,14 @@ void ClipDock::on_game_changed()
 void ClipDock::on_replay_status(ReplayBufferStatus status)
 {
 	guarded("replay status in the clip browser", [this, status] { impl_->on_replay_status(status); });
+}
+
+void ClipDock::on_activity(const ActivityEvent &event)
+{
+	guarded("activity in the clip browser", [this, &event] {
+		if (impl_->live())
+			impl_->activity_->on_activity(event);
+	});
 }
 
 void ClipDock::on_clip_sorted(const ClipSorted &clip)
