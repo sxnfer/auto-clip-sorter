@@ -464,6 +464,23 @@ File ownership:
 - **WP5.4**: OBS's Settings dialog saves plugin hotkeys in the profile (`[Hotkeys]`
   section, by name); the plugin loads its binding at start-up and on a profile change.
 
+### M6 — Dock refresh ("Native Plus")
+
+Concept A of `docs/design/dock-explorations.md`, chosen by the user on 2026-10-24. Spec:
+`docs/handover/M6-dock-spec.md`. The user asked for the implementation directly, so this session builds it without
+worker agents; the WP split and commit messages follow the usual process.
+
+| ID | Title | Grp | Depends | Status |
+|---|---|---|---|---|
+| WP6.0 | Dock spec, locale keys, design write-up | Orch | M5 | ✅ |
+| WP6.1 | `core`: kind filter, clip titles and day groups, layout breakpoints | A | 6.0 | ⏳ |
+| WP6.2 | `ui/dock-style` (colours, icons) and `ui/dock-controls` | A | 6.0 | ⏳ |
+| WP6.3 | `ui/status-header` and `ui/banner-area` redrawn | B | 6.2 | ⏳ |
+| WP6.4 | `ui/clip-list-model`: group headers, rows, cards, hover actions | B | 6.1, 6.2 | ⏳ |
+| WP6.5 | `ui/clip-preview` and `ui/dock-toast` | B | 6.2 | ⏳ |
+| WP6.6 | `ui/clip-dock`: chips, kind filter, three layouts, Save replay, toast | C | 6.3–6.5 | ⏳ |
+| WP6.7 | Release 1.1.0: test checklist, docs, version, tag | Orch | all | ⏳ |
+
 ## 6. Risks to watch
 
 | Risk | Mitigation |
@@ -525,3 +542,7 @@ File ownership:
 | 2026-10-21 | First release is 1.0.0 even with M4 deferred; the tag is pushed before the Windows test, so GitHub builds a draft release the user publishes after testing | User |
 | 2026-10-21 | This environment refuses tag pushes (only the session branch can be pushed), so the user creates the `1.0.0` tag on GitHub; the tag-triggered workflow then builds the draft release | Orchestrator |
 | 2026-10-21 | Ubuntu CI falls back to Ubuntu's own `libobs-dev` (30.x, the same package the local compile check uses) when the OBS PPA's development files are missing; Launchpad answered 503 for hours and the release job needs every build green | Orchestrator |
+| 2026-10-24 | M6 dock refresh: concept A ("Native Plus") from the design canvas, with its bottom-row and floating layouts; released as 1.1.0 | User |
+| 2026-10-24 | M6 theme rules: rows, chips, segments, the switch, the status pill, headings and icons are painted from the palette. OBS 31 builds the app `QPalette` from its theme variables (`obs-app-theming.cpp`), keeps the native style on Windows under its style sheet (native item selection colours), and its `QWidget` font rule overrides `setFont()` sizes. Green and amber come from the theme's `text-success` / `text-warning` classes, read from a probe label, with fallbacks. The plugin still sets no style sheet | Orchestrator |
+| 2026-10-24 | The dock picks its layout from its size (`core/dock-layout`): column, row (short and wide: header rail plus a sideways strip) or wide (list plus preview), with a 30 px margin against flip-flopping | Orchestrator |
+| 2026-10-24 | Save replay in the dock calls `obs_frontend_replay_buffer_save()` (OBS 31.0 header), only while `obs_frontend_replay_buffer_active()`. OBS 31 has no frontend call that opens its own Settings dialog, so the "Replay Buffer is off" banner keeps saying where the setting is | Orchestrator |
