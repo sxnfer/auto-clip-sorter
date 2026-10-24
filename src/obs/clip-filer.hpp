@@ -33,6 +33,7 @@
 #pragma once
 
 #include "clip-routing.hpp"
+#include "activity-model.hpp"
 #include "file-mover.hpp"
 #include "remux-rules.hpp"
 #include "settings-store.hpp"
@@ -64,6 +65,7 @@ struct ClipSorted {
 };
 
 using ClipSortedCallback = std::function<void(const ClipSorted &)>;
+using ActivityCallback = std::function<void(const ActivityEvent &)>;
 
 // One file a save produced.
 struct ClipFile {
@@ -112,6 +114,8 @@ public:
 	void stop();
 
 	void set_clip_sorted_callback(ClipSortedCallback callback);
+	// Observational only, delivered on the UI thread, never after stop().
+	void set_activity_callback(ActivityCallback callback);
 
 private:
 	struct Shared;

@@ -28,3 +28,9 @@ endif()
 include(CTest)
 include(Catch)
 catch_discover_tests(clip_atlas_tests)
+
+# Optional native widget / ClipFiler integration checks; the default core suite stays dependency-free.
+option(CLIP_ATLAS_UI_TESTS "Build Qt activity widget and filing integration tests" OFF)
+if(CLIP_ATLAS_UI_TESTS)
+  add_subdirectory(ui)
+endif()

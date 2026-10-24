@@ -440,6 +440,17 @@ void on_clip_sorted(const ClipSorted &clip)
 	}
 }
 
+// ClipFiler has already dispatched this observation to the UI thread.
+void on_activity(const ActivityEvent &event)
+{
+	try {
+		if (!g_stopped && g_dock)
+			g_dock->on_activity(event);
+	} catch (...) {
+		obs_log(LOG_WARNING, "activity display update failed");
+	}
+}
+
 // Plugin-level frontend callback, registered by obs_module_load() and never removed. It handles two events:
 //   - OBS_FRONTEND_EVENT_FINISHED_LOADING: OBS has created its outputs and scene collection, so the Replay Buffer
 //     controller starts here. Module load is too early, because the controller asks OBS for the replay buffer output.
@@ -557,8 +568,10 @@ void start_plugin()
 
 	ctx.tracker->start(settings);
 	ctx.events->set_clip_sorted_callback(on_clip_sorted);
+	ctx.events->set_activity_callback(on_activity);
 	ctx.events->start();
 	ctx.recordings->set_clip_sorted_callback(on_clip_sorted);
+	ctx.recordings->set_activity_callback(on_activity);
 	ctx.recordings->start();
 
 	ctx.settings_listener =

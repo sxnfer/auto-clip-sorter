@@ -132,7 +132,10 @@ public:
 	//     use it up. Partials are cleaned up except in the vanished-source case.
 	// After shutdown() the job is not queued and the callback gets cancelled
 	// immediately on the calling thread. Returns the job id either way.
-	JobId move(const std::filesystem::path &source, const std::filesystem::path &dest_dir, MoveCallback callback);
+	// Optional observer runs once on the worker immediately before a move starts, never for queued cancellation.
+	// It must not block. Exceptions are contained, as for result callbacks.
+	JobId move(const std::filesystem::path &source, const std::filesystem::path &dest_dir, MoveCallback callback,
+		   std::function<void()> on_started = {});
 
 	// Queues a wait for `file` to exist with size and last_write_time unchanged
 	// across polls spanning at least `stable_for`. Gives up after `timeout`

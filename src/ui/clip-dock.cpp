@@ -16,6 +16,7 @@
 #include "settings-model.hpp"
 #include "shell-ops.hpp"
 #include "status-header.hpp"
+#include "activity-status.hpp"
 #include "task-queue.hpp"
 #include "ui-thread.hpp"
 
@@ -220,6 +221,7 @@ struct ClipDock::Impl {
 	std::shared_ptr<Shared> shared_;
 
 	StatusHeader *header_ = nullptr;
+	ActivityStatus *activity_ = nullptr;
 	BannerArea *banners_ = nullptr;
 	QComboBox *game_combo_ = nullptr;
 	QLineEdit *search_ = nullptr;
@@ -253,6 +255,8 @@ ClipDock::Impl::Impl(ClipDock *dock, const GameState &state, SettingsStore &sett
 
 	header_ = new StatusHeader(dock_);
 	root->addWidget(header_);
+	activity_ = new ActivityStatus(dock_);
+	root->addWidget(activity_);
 	banners_ = new BannerArea(dock_);
 	root->addWidget(banners_);
 
@@ -391,6 +395,7 @@ void ClipDock::Impl::stop()
 		return;
 	// Set first, so every result that runs from here on finds the dock stopped.
 	shared_->stopped = true;
+	activity_->stop();
 	shared_->queue.shutdown();
 	ages_timer_->stop();
 	model_->shutdown();
@@ -995,6 +1000,14 @@ void ClipDock::on_game_changed()
 void ClipDock::on_replay_status(ReplayBufferStatus status)
 {
 	guarded("replay status in the clip browser", [this, status] { impl_->on_replay_status(status); });
+}
+
+void ClipDock::on_activity(const ActivityEvent &event)
+{
+	guarded("activity in the clip browser", [this, &event] {
+		if (impl_->live())
+			impl_->activity_->on_activity(event);
+	});
 }
 
 void ClipDock::on_clip_sorted(const ClipSorted &clip)

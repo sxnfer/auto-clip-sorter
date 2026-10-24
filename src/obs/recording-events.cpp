@@ -360,4 +360,9 @@ void RecordingEvents::set_clip_sorted_callback(ClipSortedCallback callback)
 	impl_->shared->filer.set_clip_sorted_callback(std::move(callback));
 }
 
+void RecordingEvents::set_activity_callback(ActivityCallback callback)
+{
+	impl_->shared->filer.set_activity_callback(std::move(callback));
+}
+
 } // namespace clip_atlas

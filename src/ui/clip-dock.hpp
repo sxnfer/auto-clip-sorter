@@ -131,6 +131,7 @@ public:
 	void on_game_changed();
 	void on_replay_status(ReplayBufferStatus status);
 	void on_clip_sorted(const ClipSorted &clip);
+	void on_activity(const ActivityEvent &event);
 
 	// For the update banner (M5). nullptr after stop().
 	BannerArea *banners();
