@@ -11,6 +11,7 @@
 #include "clip-index.hpp"
 #include "clip-layout.hpp"
 #include "clip-list-model.hpp"
+#include "clip-list-view.hpp"
 #include "clip-routing.hpp"
 #include "settings-dialog.hpp"
 #include "settings-model.hpp"
@@ -224,7 +225,7 @@ struct ClipDock::Impl {
 	QComboBox *game_combo_ = nullptr;
 	QLineEdit *search_ = nullptr;
 	QStackedWidget *stack_ = nullptr;
-	QListView *list_ = nullptr;
+	ClipListView *list_ = nullptr;
 	QLabel *empty_label_ = nullptr;
 	QPushButton *open_folder_ = nullptr;
 	QTimer *ages_timer_ = nullptr;
@@ -271,14 +272,9 @@ ClipDock::Impl::Impl(ClipDock *dock, const GameState &state, SettingsStore &sett
 
 	// The list shows the clips. The message takes its place when there is nothing to list.
 	stack_ = new QStackedWidget(dock_);
-	list_ = new QListView(stack_);
+	list_ = new ClipListView(stack_);
 	model_ = new ClipListModel(dock_);
 	list_->setModel(model_);
-	list_->setItemDelegate(new ClipListDelegate(list_));
-	list_->setSelectionMode(QAbstractItemView::SingleSelection);
-	list_->setUniformItemSizes(true);
-	list_->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
-	list_->setContextMenuPolicy(Qt::CustomContextMenu);
 	stack_->addWidget(list_);
 
 	empty_label_ = new QLabel(stack_);
@@ -349,7 +345,7 @@ ClipDock::Impl::Impl(ClipDock *dock, const GameState &state, SettingsStore &sett
 		},
 		Qt::WidgetWithChildrenShortcut);
 	QObject::connect(ages_timer_, &QTimer::timeout, dock_, [weak] {
-		with_live(weak, "refreshing the ages", [](Impl &impl) { impl.model_->refresh_ages(); });
+		with_live(weak, "refreshing the ages", [](Impl &impl) { impl.model_->refresh_day(); });
 	});
 	QObject::connect(open_folder_, &QPushButton::clicked, dock_, [weak] {
 		with_live(weak, "opening the clips folder", [](Impl &impl) { impl.open_folder(); });
@@ -404,7 +400,7 @@ void ClipDock::Impl::on_shown()
 	// shows.
 	refresh_if_changed();
 	// The ages are right at once. The timer keeps them right while the dock stays visible.
-	model_->refresh_ages();
+	model_->refresh_day();
 	ages_timer_->start();
 }
 

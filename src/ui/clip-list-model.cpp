@@ -1,6 +1,5 @@
-// Clip Atlas — the dock's clip list: the model over ClipIndex, and the delegate that draws each row.
-// clip-list-model.hpp says what each one shows; this file keeps the thumbnail cache and the pending requests in step
-// with the rows.
+// Clip Atlas — the dock's clip list model. clip-list-model.hpp says what each row shows; this file groups the clips by
+// day and keeps the thumbnail cache and the pending requests in step with them.
 #include "clip-list-model.hpp"
 
 #include "clip-layout.hpp"
@@ -9,45 +8,29 @@
 #include <obs-module.h>
 #include <plugin-support.h>
 
-#include <QApplication>
-#include <QColor>
+#include <QChar>
+#include <QDate>
 #include <QDateTime>
-#include <QFont>
-#include <QFontMetrics>
-#include <QIcon>
 #include <QImage>
-#include <QPainter>
-#include <QPalette>
-#include <QPointF>
+#include <QLocale>
 #include <QPointer>
-#include <QRect>
-#include <QRectF>
-#include <QSize>
-#include <QSizeF>
-#include <QStyle>
-#include <QStyleOptionViewItem>
-#include <QWidget>
+#include <QTime>
+#include <QVariantAnimation>
 
 #include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <exception>
 #include <memory>
+#include <optional>
 #include <utility>
 
 namespace clip_atlas {
 
 namespace {
 
-// Space around the thumbnail, and between the thumbnail and the text.
-constexpr int kMargin = 4;
-constexpr int kGap = 8;
-// Between the file name line and the details line.
-constexpr int kLineGap = 2;
-// Small next to the thumbnail area, so a clip without a picture reads as "no picture yet", not as a broken one.
-constexpr int kPlaceholderPx = 24;
-// The kind label is a little smaller than the file name.
-constexpr double kKindScale = 0.9;
+// The fresh clip's flash: from the accent to nothing, long enough to catch the eye and short enough not to nag.
+constexpr int kFlashMs = 1400;
 
 QString module_text(const char *key)
 {
@@ -57,7 +40,13 @@ QString module_text(const char *key)
 // The core's strings are UTF-8 std::strings. The explicit length keeps an embedded NUL from cutting the text short.
 QString utf8(const std::string &text)
 {
-	return QString::fromUtf8(text.data(), static_cast<int>(text.size()));
+	return QString::fromUtf8(text.data(), static_cast<qsizetype>(text.size()));
+}
+
+// U+00B7 MIDDLE DOT between spaces, as a code point so the source stays plain ASCII.
+QString separator()
+{
+	return QStringLiteral(" ") + QChar(0x00B7) + QStringLiteral(" ");
 }
 
 // system_clock counts from the Unix epoch: C++20 requires it, and MSVC and libstdc++ already do in C++17. Milliseconds
@@ -68,33 +57,83 @@ QDateTime to_date_time(std::chrono::system_clock::time_point t)
 	return QDateTime::fromMSecsSinceEpoch(static_cast<qint64>(ms));
 }
 
-std::chrono::system_clock::time_point to_time_point(const QDateTime &t)
+QString time_of_day(const QDateTime &t)
 {
-	return std::chrono::system_clock::time_point(std::chrono::milliseconds(t.toMSecsSinceEpoch()));
+	return QLocale::system().toString(t.time(), QLocale::ShortFormat);
 }
 
-// "2 min ago", or the date for a clip a week old or more. describe_age() gives the count; the wording is the locale's.
-QString age_text(std::chrono::system_clock::time_point modified, std::chrono::system_clock::time_point now)
+QString short_weekday(const QDateTime &t)
 {
-	const Age age = describe_age(modified, now);
-	switch (age.unit) {
-	case AgeUnit::just_now:
-		return module_text("Dock.Age.JustNow");
-	case AgeUnit::minutes:
-		return module_text("Dock.Age.Minutes").arg(age.count);
-	case AgeUnit::hours:
-		return module_text("Dock.Age.Hours").arg(age.count);
-	case AgeUnit::days:
-		return module_text("Dock.Age.Days").arg(age.count);
-	case AgeUnit::date:
+	return QLocale::system().dayName(t.date().dayOfWeek(), QLocale::ShortFormat);
+}
+
+// Under a header, which already says the day or the month.
+QString when_in_group(const QDateTime &t, DayGroupKind group)
+{
+	switch (group) {
+	case DayGroupKind::today:
+	case DayGroupKind::yesterday:
+		return time_of_day(t);
+	case DayGroupKind::recent:
+		return short_weekday(t) + QLatin1Char(' ') + time_of_day(t);
+	case DayGroupKind::month:
+		return short_weekday(t) + QLatin1Char(' ') + QString::number(t.date().day());
+	}
+	return time_of_day(t);
+}
+
+// On a card, which has no header.
+QString when_alone(const QDateTime &t, DayGroupKind group)
+{
+	switch (group) {
+	case DayGroupKind::today:
+		return module_text("Dock.When.Today").arg(time_of_day(t));
+	case DayGroupKind::yesterday:
+		return module_text("Dock.When.Yesterday").arg(time_of_day(t));
+	case DayGroupKind::recent:
+		return short_weekday(t) + QLatin1Char(' ') + time_of_day(t);
+	case DayGroupKind::month:
 		break;
 	}
-	return utf8(format_local_date(modified));
+	return QLocale::system().toString(t.date(), QLocale::ShortFormat);
 }
 
-QString kind_text(int kind)
+QString group_label(const DayGroup &group, const LocalDate &today)
 {
-	switch (static_cast<ClipKind>(kind)) {
+	switch (group.kind) {
+	case DayGroupKind::today:
+		return module_text("Dock.Group.Today");
+	case DayGroupKind::yesterday:
+		return module_text("Dock.Group.Yesterday");
+	case DayGroupKind::recent:
+		return module_text("Dock.Group.Recent");
+	case DayGroupKind::month:
+		break;
+	}
+	// The standalone name ("Oktober", not the genitive some languages use inside a date). This year's months need no
+	// year.
+	const QString month = QLocale::system().standaloneMonthName(group.month.month, QLocale::LongFormat);
+	if (group.month.year == today.year)
+		return month;
+	return month + QLatin1Char(' ') + QString::number(group.month.year);
+}
+
+} // namespace
+
+QString clip_title(const ClipEntry &clip, bool with_time)
+{
+	const ClipTitle parsed = parse_clip_title(clip.file_name);
+	if (!parsed.stamped)
+		return utf8(parsed.stem);
+	QString title = parsed.prefix.empty() ? kind_name(clip.kind) : utf8(parsed.prefix);
+	if (with_time)
+		title += QLatin1Char(' ') + utf8(parsed.time);
+	return title + utf8(parsed.suffix);
+}
+
+QString kind_name(ClipKind kind)
+{
+	switch (kind) {
 	case ClipKind::replay:
 		return module_text("Dock.Kind.Replay");
 	case ClipKind::recording:
@@ -105,23 +144,36 @@ QString kind_text(int kind)
 	return QString();
 }
 
-// Restores the painter when a row is done, including when a draw call throws halfway through, so the next row
-// starts from the state the view left.
-class PainterState {
-public:
-	explicit PainterState(QPainter *painter) : painter_(painter) { painter_->save(); }
-	~PainterState() { painter_->restore(); }
+QString game_label(const std::string &game_folder)
+{
+	return game_folder.empty() ? module_text("Dock.Game.Unfiled") : utf8(game_folder);
+}
 
-	PainterState(const PainterState &) = delete;
-	PainterState &operator=(const PainterState &) = delete;
+QString count_text(std::size_t count)
+{
+	if (count == 1)
+		return module_text("Dock.Count.One");
+	return module_text("Dock.Count.Many").arg(static_cast<qulonglong>(count));
+}
 
-private:
-	QPainter *painter_;
-};
+QString summary_text(std::size_t count, std::uintmax_t bytes)
+{
+	return module_text("Dock.Summary").arg(count_text(count), utf8(format_size(bytes)));
+}
 
-} // namespace
-
-ClipListModel::ClipListModel(QObject *parent) : QAbstractListModel(parent) {}
+ClipListModel::ClipListModel(QObject *parent) : QAbstractListModel(parent)
+{
+	flash_ = new QVariantAnimation(this);
+	flash_->setDuration(kFlashMs);
+	flash_->setStartValue(1.0);
+	flash_->setEndValue(0.0);
+	flash_->setEasingCurve(QEasingCurve::InQuad);
+	QObject::connect(flash_, &QVariantAnimation::valueChanged, this, [this](const QVariant &value) {
+		flash_level_ = value.toReal();
+		emit_row_changed(fresh_row_, {FlashRole});
+	});
+	today_ = local_date_of(std::chrono::system_clock::now());
+}
 
 ClipListModel::~ClipListModel()
 {
@@ -155,8 +207,8 @@ void ClipListModel::reset_clips(std::vector<ClipEntry> clips)
 
 void ClipListModel::upsert_clip(ClipEntry clip)
 {
-	// A reset rather than row-by-row inserts: one change can move a row, or push another out past
-	// the cap, and the dock reselects by path anyway.
+	// A reset rather than row-by-row inserts: one change can move a row, add a header, or push another
+	// clip out past the cap, and the dock reselects by path anyway.
 	beginResetModel();
 	const ClipEntry *old = index_.find(clip.path);
 	// The picture belongs to the file as it was. A replaced file (new size or time) loses it, and so
@@ -192,6 +244,16 @@ const ClipQuery &ClipListModel::query() const
 	return query_;
 }
 
+void ClipListModel::set_grouped(bool grouped)
+{
+	if (grouped == grouped_)
+		return;
+	beginResetModel();
+	grouped_ = grouped;
+	rebuild_rows();
+	endResetModel();
+}
+
 const ClipIndex &ClipListModel::index() const
 {
 	return index_;
@@ -201,25 +263,52 @@ const ClipEntry *ClipListModel::clip_at(int row) const
 {
 	if (row < 0 || row >= static_cast<int>(rows_.size()))
 		return nullptr;
-	return &rows_[static_cast<std::size_t>(row)];
+	const Row &shown = rows_[static_cast<std::size_t>(row)];
+	return shown.header ? nullptr : &clips_[shown.clip];
 }
 
 int ClipListModel::row_of(const std::filesystem::path &path) const
 {
 	for (std::size_t i = 0; i < rows_.size(); ++i) {
-		if (rows_[i].path == path)
+		if (!rows_[i].header && clips_[rows_[i].clip].path == path)
 			return static_cast<int>(i);
 	}
 	return -1;
 }
 
-void ClipListModel::refresh_ages()
+bool ClipListModel::is_header(int row) const
 {
-	if (rows_.empty())
+	return row >= 0 && row < static_cast<int>(rows_.size()) && rows_[static_cast<std::size_t>(row)].header;
+}
+
+std::size_t ClipListModel::clip_count() const
+{
+	return clips_.size();
+}
+
+void ClipListModel::set_fresh(const std::filesystem::path &path)
+{
+	if (stopped_)
 		return;
-	// No roles given: every role may have changed, and the age text is worked out from the modified
-	// time on every paint.
-	emit dataChanged(QAbstractListModel::index(0, 0), QAbstractListModel::index(rowCount() - 1, 0));
+	const int old_row = fresh_row_;
+	fresh_ = path;
+	fresh_row_ = row_of(path);
+	if (old_row >= 0 && old_row != fresh_row_)
+		emit_row_changed(old_row, {FreshRole, FlashRole});
+	flash_->stop();
+	flash_level_ = 1.0;
+	emit_row_changed(fresh_row_, {FreshRole, FlashRole});
+	flash_->start();
+}
+
+bool ClipListModel::refresh_day()
+{
+	if (local_date_of(std::chrono::system_clock::now()) == today_)
+		return false;
+	beginResetModel();
+	rebuild_rows();
+	endResetModel();
+	return true;
 }
 
 void ClipListModel::shutdown()
@@ -227,6 +316,9 @@ void ClipListModel::shutdown()
 	// Answers still on the way find no pending request and are ignored; stopped_ turns away new ones.
 	stopped_ = true;
 	pending_.clear();
+	if (flash_)
+		flash_->stop();
+	flash_level_ = 0.0;
 }
 
 int ClipListModel::rowCount(const QModelIndex &parent) const
@@ -235,40 +327,20 @@ int ClipListModel::rowCount(const QModelIndex &parent) const
 	return parent.isValid() ? 0 : static_cast<int>(rows_.size());
 }
 
+Qt::ItemFlags ClipListModel::flags(const QModelIndex &index) const
+{
+	if (!index.isValid() || is_header(index.row()))
+		return Qt::NoItemFlags;
+	return Qt::ItemIsEnabled | Qt::ItemIsSelectable;
+}
+
 QVariant ClipListModel::data(const QModelIndex &index, int role) const
 {
 	try {
 		if (!index.isValid() || index.row() >= static_cast<int>(rows_.size()))
 			return QVariant();
-		const ClipEntry &clip = rows_[static_cast<std::size_t>(index.row())];
-		switch (role) {
-		case Qt::DisplayRole:
-			return utf8(clip.file_name);
-		case Qt::ToolTipRole:
-			return utf8(path_to_utf8(clip.path));
-		case Qt::DecorationRole: {
-			const std::string key = path_to_utf8(clip.path);
-			if (QPixmap *picture = thumbnails_.get(key))
-				return *picture;
-			// A miss asks once: the path stays pending until the answer comes. A failed clip
-			// is not asked again until it changes, so scrolling past it doesn't ask the Shell.
-			if (!stopped_ && pending_.count(key) == 0 && failed_.count(key) == 0)
-				request_thumbnail(key);
-			return QPixmap();
-		}
-		case PathRole:
-			return utf8(path_to_utf8(clip.path));
-		case KindRole:
-			return static_cast<int>(clip.kind);
-		case GameRole:
-			return utf8(clip.game_folder);
-		case SizeRole:
-			return static_cast<qulonglong>(clip.size);
-		case ModifiedRole:
-			return to_date_time(clip.modified);
-		default:
-			return QVariant();
-		}
+		const Row &row = rows_[static_cast<std::size_t>(index.row())];
+		return row.header ? header_data(row, role) : clip_data(row, role);
 	} catch (const std::exception &e) {
 		// Qt calls data() from its event loop, so nothing may leave it. The cell falls back to "no data".
 		obs_log(LOG_WARNING, "clip list: data() failed: %s", e.what());
@@ -279,9 +351,100 @@ QVariant ClipListModel::data(const QModelIndex &index, int role) const
 	}
 }
 
+QVariant ClipListModel::header_data(const Row &row, int role) const
+{
+	switch (role) {
+	case Qt::DisplayRole:
+		return group_label(row.group, today_);
+	case Qt::AccessibleTextRole:
+		return group_label(row.group, today_) + QStringLiteral(", ") + summary_text(row.count, row.bytes);
+	case HeaderRole:
+		return true;
+	case DetailRole:
+		return summary_text(row.count, row.bytes);
+	default:
+		return QVariant();
+	}
+}
+
+QVariant ClipListModel::clip_data(const Row &row, int role) const
+{
+	const ClipEntry &clip = clips_[row.clip];
+	switch (role) {
+	case Qt::DisplayRole:
+		return clip_title(clip);
+	case Qt::ToolTipRole:
+		return utf8(path_to_utf8(clip.path));
+	case Qt::AccessibleTextRole: {
+		// The standalone time: a screen reader says the row without its header.
+		const QString when = when_alone(to_date_time(clip.modified), row.group.kind);
+		return clip_title(clip) + QStringLiteral(", ") + game_label(clip.game_folder) + QStringLiteral(", ") +
+		       utf8(format_size(clip.size)) + QStringLiteral(", ") + when;
+	}
+	case Qt::DecorationRole: {
+		const std::string key = path_to_utf8(clip.path);
+		if (QPixmap *picture = thumbnails_.get(key))
+			return *picture;
+		// A miss asks once: the path stays pending until the answer comes. A failed clip
+		// is not asked again until it changes, so scrolling past it doesn't ask the Shell.
+		if (!stopped_ && pending_.count(key) == 0 && failed_.count(key) == 0)
+			request_thumbnail(key);
+		return QPixmap();
+	}
+	case PathRole:
+		return utf8(path_to_utf8(clip.path));
+	case KindRole:
+		return static_cast<int>(clip.kind);
+	case GameRole:
+		return utf8(clip.game_folder);
+	case SizeRole:
+		return static_cast<qulonglong>(clip.size);
+	case ModifiedRole:
+		return to_date_time(clip.modified);
+	case HeaderRole:
+		return false;
+	case DetailRole:
+		return game_label(clip.game_folder) + separator() + utf8(format_size(clip.size));
+	case WhenRole: {
+		const QDateTime modified = to_date_time(clip.modified);
+		return grouped_ ? when_in_group(modified, row.group.kind) : when_alone(modified, row.group.kind);
+	}
+	case FreshRole:
+		return !fresh_.empty() && clip.path == fresh_;
+	case FlashRole:
+		return !fresh_.empty() && clip.path == fresh_ ? flash_level_ : 0.0;
+	default:
+		return QVariant();
+	}
+}
+
 void ClipListModel::rebuild_rows()
 {
-	rows_ = index_.query(query_);
+	clips_ = index_.query(query_);
+	today_ = local_date_of(std::chrono::system_clock::now());
+	rows_.clear();
+	rows_.reserve(clips_.size() + 8);
+	// The clips are newest first, so each group's clips are together and one header starts each group.
+	std::optional<std::size_t> header;
+	for (std::size_t i = 0; i < clips_.size(); ++i) {
+		const DayGroup group = day_group_of(local_date_of(clips_[i].modified), today_);
+		if (grouped_ && (!header || rows_[*header].group != group)) {
+			header = rows_.size();
+			Row start;
+			start.header = true;
+			start.group = group;
+			rows_.push_back(start);
+		}
+		if (header) {
+			rows_[*header].count += 1;
+			rows_[*header].bytes += clips_[i].size;
+		}
+		Row row;
+		row.group = group;
+		row.clip = i;
+		rows_.push_back(row);
+	}
+	fresh_row_ = fresh_.empty() ? -1 : row_of(fresh_);
 }
 
 void ClipListModel::request_thumbnail(const std::string &path_utf8) const
@@ -337,10 +500,7 @@ void ClipListModel::on_thumbnail(const std::string &path_utf8, std::uint64_t tic
 	}
 
 	// The row may have been filtered out or removed since the request. Then the picture waits in the cache for it.
-	const int row = row_of(path_from_utf8(path_utf8));
-	if (row >= 0)
-		emit dataChanged(QAbstractListModel::index(row, 0), QAbstractListModel::index(row, 0),
-				 {Qt::DecorationRole});
+	emit_row_changed(row_of(path_from_utf8(path_utf8)), {Qt::DecorationRole});
 }
 
 void ClipListModel::forget_thumbnail(const std::string &path_utf8)
@@ -350,110 +510,12 @@ void ClipListModel::forget_thumbnail(const std::string &path_utf8)
 	failed_.erase(path_utf8);
 }
 
-ClipListDelegate::ClipListDelegate(QObject *parent) : QStyledItemDelegate(parent) {}
-
-QSize ClipListDelegate::sizeHint(const QStyleOptionViewItem &, const QModelIndex &) const
+void ClipListModel::emit_row_changed(int row, const QList<int> &roles)
 {
-	// Width 0: QListView then gives each row the viewport's width, with or without a scrollbar.
-	return QSize(0, ClipListModel::kRowHeight);
-}
-
-void ClipListDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const
-{
-	try {
-		// initStyleOption() fills in the state, palette and font the view chose. Text and icon are
-		// drawn below, so they are cleared here; PE_PanelItemViewItem paints just the background.
-		QStyleOptionViewItem opt(option);
-		initStyleOption(&opt, index);
-		opt.text.clear();
-		opt.icon = QIcon();
-		const QWidget *widget = opt.widget;
-		QStyle *style = widget ? widget->style() : QApplication::style();
-		style->drawPrimitive(QStyle::PE_PanelItemViewItem, &opt, painter, widget);
-
-		const PainterState state(painter);
-		const QRect row = opt.rect;
-		// Intersected rather than replaced, so the view's own clip still applies.
-		painter->setClipRect(row, Qt::IntersectClip);
-		const bool selected = opt.state.testFlag(QStyle::State_Selected);
-
-		// The thumbnail sits at the left, centred vertically. The file icon stands in while the
-		// picture loads, and when there is none.
-		const QRect thumb_box(row.left() + kMargin,
-				      row.top() + (row.height() - ClipListModel::kThumbHeight) / 2,
-				      ClipListModel::kThumbWidth, ClipListModel::kThumbHeight);
-		const QPixmap picture = index.data(Qt::DecorationRole).value<QPixmap>();
-		if (picture.isNull()) {
-			QRect icon_box(0, 0, kPlaceholderPx, kPlaceholderPx);
-			icon_box.moveCenter(thumb_box.center());
-			style->standardIcon(QStyle::SP_FileIcon).paint(painter, icon_box);
-		} else {
-			// Scaled in device pixels, so a HiDPI screen shows it sharp. The provider was asked
-			// for twice the row's size for this reason.
-			const qreal dpr = painter->device() ? painter->device()->devicePixelRatioF() : 1.0;
-			QPixmap scaled = picture.scaled((QSizeF(thumb_box.size()) * dpr).toSize(), Qt::KeepAspectRatio,
-							Qt::SmoothTransformation);
-			scaled.setDevicePixelRatio(dpr);
-			const QSizeF shown = QSizeF(scaled.size()) / dpr;
-			const QPointF centre = QRectF(thumb_box).center();
-			painter->drawPixmap(
-				QPointF(centre.x() - shown.width() / 2.0, centre.y() - shown.height() / 2.0), scaled);
-		}
-
-		// The text starts past the thumbnail area and runs to the right margin.
-		const int text_left = thumb_box.left() + thumb_box.width() + kGap;
-		const int text_width = std::max(0, row.right() - kMargin - text_left + 1);
-		const QFont font = opt.font;
-		QFont small = font;
-		// pointSizeF() is -1 for a font sized in pixels, and scaling that would give an invalid size.
-		if (small.pointSizeF() > 0)
-			small.setPointSizeF(font.pointSizeF() * kKindScale);
-		const QFontMetrics metrics(font);
-		const QFontMetrics small_metrics(small);
-		const int block_height = metrics.height() * 2 + kLineGap;
-		const int top = row.top() + (row.height() - block_height) / 2;
-		const QRect name_line(text_left, top, text_width, metrics.height());
-		const QRect details_line(text_left, top + metrics.height() + kLineGap, text_width, metrics.height());
-
-		// The kind takes its room at the right of the first line; the file name is elided to what is left.
-		const QString kind = kind_text(index.data(ClipListModel::KindRole).toInt());
-		const int kind_room = kind.isEmpty() ? 0 : small_metrics.horizontalAdvance(kind) + kGap;
-		const QString name = metrics.elidedText(index.data(Qt::DisplayRole).toString(), Qt::ElideMiddle,
-							std::max(0, text_width - kind_room));
-
-		// The details line: game, age and size. An unsorted clip has no game folder, so it says so.
-		QString game = index.data(ClipListModel::GameRole).toString();
-		if (game.isEmpty())
-			game = module_text("Dock.Game.Unfiled");
-		// U+00B7 MIDDLE DOT, as a code point so the source stays plain ASCII.
-		const QString separator = QStringLiteral(" ") + QChar(0x00B7) + QStringLiteral(" ");
-		const auto bytes = static_cast<std::uintmax_t>(index.data(ClipListModel::SizeRole).toULongLong());
-		const auto modified = to_time_point(index.data(ClipListModel::ModifiedRole).toDateTime());
-		const QString details = game + separator + age_text(modified, std::chrono::system_clock::now()) +
-					separator + QString::fromStdString(format_size(bytes));
-		const QString details_shown = metrics.elidedText(details, Qt::ElideRight, details_line.width());
-
-		// On a selected row the text sits on the highlight, so it takes the highlighted-text colour.
-		// Otherwise the details line uses the placeholder colour, which OBS themes dim.
-		const QColor primary = opt.palette.color(selected ? QPalette::HighlightedText : QPalette::Text);
-		const QColor secondary = selected ? primary : opt.palette.color(QPalette::PlaceholderText);
-
-		painter->setFont(font);
-		painter->setPen(primary);
-		painter->drawText(name_line, Qt::AlignLeft | Qt::AlignVCenter | Qt::TextSingleLine, name);
-		if (!kind.isEmpty()) {
-			painter->setFont(small);
-			painter->drawText(name_line, Qt::AlignRight | Qt::AlignVCenter | Qt::TextSingleLine, kind);
-		}
-		painter->setFont(font);
-		painter->setPen(secondary);
-		painter->drawText(details_line, Qt::AlignLeft | Qt::AlignVCenter | Qt::TextSingleLine, details_shown);
-	} catch (const std::exception &e) {
-		// Qt calls paint() from its event loop. The row is left partly drawn, which is better than a crash.
-		obs_log(LOG_WARNING, "clip list: paint() failed: %s", e.what());
-	} catch (...) {
-		obs_log(LOG_WARNING, "clip list: paint() failed");
-	}
+	if (row < 0 || row >= static_cast<int>(rows_.size()))
+		return;
+	const QModelIndex changed = QAbstractListModel::index(row, 0);
+	emit dataChanged(changed, changed, roles);
 }
 
 } // namespace clip_atlas
