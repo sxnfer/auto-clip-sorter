@@ -2,6 +2,13 @@
 
 All notable changes to Clip Atlas are listed here. The format follows Keep a Changelog.
 
+## [1.1.1] - 2026-10-24
+
+### Fixed
+
+- **Download** on an update banner, and **Yes** in the update check's message, now open the release page in your
+  browser. Before, nothing happened (the log said "could not open the download page").
+
 ## [1.1.0] - 2026-10-24
 
 ### Added
