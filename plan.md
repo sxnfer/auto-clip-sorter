@@ -358,6 +358,7 @@ File ownership (no two WPs in a group share a file):
 | WP3.4 | `ui/clip-list-model` + row delegate | B | 3.1, 3.2 | ✅ |
 | WP3.5 | `ui/status-header` + `ui/banner-area` | A | 3.0 | ✅ |
 | WP3.6 | `ui/clip-dock` assembly + right-click menu + registration + wiring | C | 3.3–3.5 | ✅ |
+| WP3.7 | `core/activity-model` + `ui/activity-status`: the filing activity pill and its panel (`codex/native-activity-status`; restyled to Native Plus in M6, ships in 1.1.0) | User | 3.6 | ✅ |
 
 File ownership (no two WPs in a group share a file):
 
@@ -550,3 +551,4 @@ worker agents; the WP split and commit messages follow the usual process.
 | 2026-10-24 | M6 build: rows title OBS's names "Replay", "Replay (2)", "Recording" and put the time at the right, and times show without seconds, so a row doesn't say its time twice; the preview and the toast keep the full "Replay 21:46:58" | Orchestrator |
 | 2026-10-24 | M6 testing: an offscreen harness (outside the repo) compiles the real `core` and `ui` sources with fakes for the OBS calls, renders every layout in dark and light themes and runs 41 functional checks. The painted controls have no `Q_OBJECT`, so tests find them with `dynamic_cast`, not `findChild<T>()` | Orchestrator |
 | 2026-10-24 | WP3.7 activity monitor (from `codex/native-activity-status`, built before M6) merged onto the M6 dock and restyled to Native Plus: the pill joins the Replay Buffer pill's family (notice fill, chip height, keyboard-only focus ring), the panel is an elevated card like the toast with the system's square popup shadow off, steps use the dock's stroke icons in the theme's green and amber instead of text symbols, and all text is painted so the style sheet can't override its muted colour. The idle label reads "Ready to sort" and the received step drops its text check mark for the icon. Behaviour, motion, keyboard and accessibility are otherwise unchanged | User |
+| 2026-10-24 | 1.1.0 ships the WP3.7 activity pill too: it was merged and restyled before the tag, so the changelog lists it under 1.1.0 and `docs/testing/M6.md` covers it (steps 7–11) | User |

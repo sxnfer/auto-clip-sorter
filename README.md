@@ -37,6 +37,8 @@ screenshots into per-game folders automatically, with no Python install and no s
   list with a large preview when you float it big. It shows:
   - the game being played, the Replay Buffer's state, an **Auto-sort** switch and a
     **Save replay** button;
+  - an activity pill that shows what Clip Atlas is doing with your latest save, with each
+    file's steps and the recent saves a click away;
   - banners when something needs attention, such as a missing clips folder;
   - your clips grouped by day (Today, Yesterday, Previous 7 days, then by month), with
     thumbnails from Windows, game chips with counts, a type filter (Replays, Recordings,

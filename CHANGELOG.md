@@ -2,15 +2,14 @@
 
 All notable changes to Clip Atlas are listed here. The format follows Keep a Changelog.
 
-## [Unreleased]
+## [1.1.0] - 2026-10-24
 
 ### Added
 
-- An activity pill under the dock's header shows what Clip Atlas is doing with your latest save: waiting for the file
-  to settle, sorting it, or done, with a timer. Click it (or press Enter or Space) for the details of each file, and
-  for the recent saves. It follows the dock's look in every layout and theme.
-
-## [1.1.0] - 2026-10-24
+- An activity pill under the dock's header shows what Clip Atlas is doing with your latest save:
+  waiting for the file to settle, sorting it, or done, with a timer. Click it (or press **Enter**
+  or **Space**) for each file's steps and the recent saves; **Esc** closes them. A save that
+  couldn't be sorted keeps its amber warning until the next save, and its details say why.
 
 ### Changed
 
