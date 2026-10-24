@@ -40,7 +40,10 @@ column (default)                               row (short and wide)
   sideways strip of cards (`QListView` in list mode with left-to-right flow and no wrapping; the vertical wheel
   scrolls it sideways), and has no group headers.
 - **wide** shows `ClipPreview` for the current clip; entering it selects the first clip when none is selected.
-- The toast sits above the footer (column, wide) or at the bottom of the rail (row).
+- The toast sits above the footer (column, wide) or at the bottom of the rail (row), below the activity pill; a rail
+  too short for the toast's text leaves it over the strip.
+- The activity pill (`docs/handover/activity-status.md`) sits under the header in every layout: below it in the
+  column and wide layouts, in the rail in the row layout. It uses the same pill family as the Replay Buffer pill.
 - **Minimum size**: the dock sets an explicit minimum (200 x 120), which a layout doesn't override. The column
   layout's own minimum is taller than the bottom row, so without it the dock could never get short enough to switch
   to the row layout. A dock made smaller than its layout needs squeezes the list first.
@@ -55,6 +58,7 @@ ClipDock : QWidget                                    ui/clip-dock
 │  ├─ ToggleSwitch       Auto-sort
 │  ├─ StatusPill         dot + "Replay Buffer on" + "started by Clip Atlas"
 │  └─ QPushButton        Save replay
+├─ ActivityStatus        filing activity pill and its panel (WP3.7)  ui/activity-status
 ├─ BannerArea            rows are NoticeFrames                       ui/banner-area
 ├─ QLineEdit             search, leading search icon, clear button
 ├─ ChipBar               All / each game / Not sorted, with counts   ui/dock-controls

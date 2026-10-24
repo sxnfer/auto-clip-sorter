@@ -6,13 +6,15 @@
 #include <QAbstractButton>
 #include <QAccessible>
 #include <QApplication>
+#include <QCursor>
 #include <QDir>
 #include <QFrame>
+#include <QPainter>
+#include <QPixmap>
 #include <QPointer>
 #include <QScrollArea>
 #include <QTest>
 #include <QTimer>
-#include <QToolButton>
 #include <QVBoxLayout>
 
 using namespace clip_atlas;
@@ -37,7 +39,18 @@ void capture(QWidget *widget, const QString &name)
 		return;
 	QDir().mkpath(directory);
 	QApplication::processEvents();
-	CHECK(widget->grab().save(directory + QLatin1Char('/') + name + QStringLiteral(".png")));
+	QPixmap shot = widget->grab();
+	if (widget->testAttribute(Qt::WA_TranslucentBackground)) {
+		// The panel's shadow falls on whatever is under it, so the picture puts it on the dock's base.
+		QPixmap backed(shot.size());
+		backed.setDevicePixelRatio(shot.devicePixelRatio());
+		backed.fill(widget->palette().color(QPalette::Base));
+		QPainter painter(&backed);
+		painter.drawPixmap(0, 0, shot);
+		painter.end();
+		shot = backed;
+	}
+	CHECK(shot.save(directory + QLatin1Char('/') + name + QStringLiteral(".png")));
 }
 } // namespace
 
@@ -95,7 +108,8 @@ TEST_CASE("Activity status wraps details and survives narrow resize during anima
 	QTest::qWait(20);
 	auto *panel = status.findChild<QFrame *>(QStringLiteral("activityPanel"));
 	REQUIRE(panel);
-	CHECK(panel->width() <= status.width());
+	// The panel's window has room for the card's shadow; the card itself stays within the dock's width.
+	CHECK(panel->contentsRect().width() <= status.width());
 	CHECK(status.height() == 36);
 	auto *scroll = panel->findChild<QScrollArea *>();
 	REQUIRE(scroll);
@@ -130,7 +144,7 @@ TEST_CASE("History controls preserve keyboard escape and failures expose their d
 	CHECK(pill->accessibleName().contains(QStringLiteral("permission denied")));
 	status.set_expanded(true);
 	auto *panel = status.findChild<QFrame *>(QStringLiteral("activityPanel"));
-	const auto controls = panel->findChildren<QToolButton *>();
+	const auto controls = panel->findChildren<QAbstractButton *>(QStringLiteral("activityHistoryEntry"));
 	REQUIRE(controls.size() == 2);
 	controls.first()->setFocus();
 	QTest::keyClick(controls.first(), Qt::Key_Escape);
@@ -138,7 +152,7 @@ TEST_CASE("History controls preserve keyboard escape and failures expose their d
 	CHECK_FALSE(status.is_expanded());
 	CHECK(pill->hasFocus());
 	status.set_expanded(true);
-	const auto history = panel->findChildren<QToolButton *>();
+	const auto history = panel->findChildren<QAbstractButton *>(QStringLiteral("activityHistoryEntry"));
 	REQUIRE_FALSE(history.empty());
 	QTest::mouseClick(history.first(), Qt::LeftButton);
 	QTest::qWait(5);
@@ -158,19 +172,29 @@ TEST_CASE("A destroyed activity widget safely drops context-bound late callbacks
 
 TEST_CASE("Activity state previews use real widget painting in light and dark palettes", "[activity-ui]")
 {
+	// Away from every capture, so no control is painted as hovered.
+	QCursor::setPos(QPoint(-10000, -10000));
 	for (bool dark : {false, true}) {
 		ActivityStatus status;
+		// The roles the dock's style reads, in OBS's Yami and Yami Light colours.
 		QPalette palette;
-		if (dark) {
-			palette.setColor(QPalette::Window, QColor(28, 29, 32));
-			palette.setColor(QPalette::Base, QColor(35, 36, 40));
-			palette.setColor(QPalette::Text, QColor(236, 237, 240));
-			palette.setColor(QPalette::WindowText, QColor(236, 237, 240));
-			palette.setColor(QPalette::PlaceholderText, QColor(154, 157, 164));
-			palette.setColor(QPalette::Mid, QColor(65, 67, 74));
-			palette.setColor(QPalette::Midlight, QColor(47, 49, 55));
-		}
+		const auto set = [&palette](QPalette::ColorRole role, const QColor &color) {
+			palette.setColor(QPalette::All, role, color);
+		};
+		set(QPalette::Window, dark ? QColor(0x1D, 0x1F, 0x26) : QColor(0xE3, 0xE4, 0xE9));
+		set(QPalette::Base, dark ? QColor(0x27, 0x2A, 0x33) : QColor(0xF7, 0xF7, 0xF9));
+		set(QPalette::Button, dark ? QColor(0x3C, 0x40, 0x4D) : QColor(0xD8, 0xDA, 0xE1));
+		set(QPalette::Highlight, dark ? QColor(0x28, 0x4C, 0xB8) : QColor(0x33, 0x60, 0xDE));
+		set(QPalette::HighlightedText, Qt::white);
+		for (QPalette::ColorRole role : {QPalette::Text, QPalette::WindowText, QPalette::ButtonText})
+			set(role, dark ? QColor(Qt::white) : QColor(0x17, 0x18, 0x1D));
+		for (QPalette::ColorRole role : {QPalette::Text, QPalette::WindowText, QPalette::ButtonText})
+			palette.setColor(QPalette::Disabled, role,
+					 dark ? QColor(153, 153, 153) : QColor(0x7D, 0x80, 0x8C));
 		status.setPalette(palette);
+		// On the dock's base, as in OBS, where the pill's notice fill shows as a darker capsule.
+		status.setBackgroundRole(QPalette::Base);
+		status.setAutoFillBackground(true);
 		status.resize(380, 36);
 		status.set_reduced_motion(true);
 		status.show();

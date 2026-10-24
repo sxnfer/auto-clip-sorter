@@ -7,6 +7,8 @@ add_executable(
   test-clip-filer.cpp
   host-stubs.cpp
   ../../src/ui/activity-status.cpp
+  ../../src/ui/dock-controls.cpp
+  ../../src/ui/dock-style.cpp
   ../../src/obs/clip-filer.cpp
   ../../src/core/activity-model.cpp
   ../../src/core/file-mover.cpp

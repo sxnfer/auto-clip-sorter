@@ -688,10 +688,11 @@ void ClipDock::Impl::place_toast()
 	// Over the bottom of the list, or of the rail in the bottom row, which has the room the strip lacks.
 	QRect area(stack_->mapTo(dock_, QPoint(0, 0)), stack_->size());
 	if (layout_ == DockLayout::row) {
-		// Below the activity pill, which sits under the header in the rail.
+		// Below the activity pill, which sits under the header in the rail. A rail too short for the toast's text
+		// leaves it over the strip, rather than over the pill and the header.
 		const int top = activity_->geometry().bottom() + 1;
 		const QRect rail(0, top, header_->width(), footer_->geometry().top() - top);
-		if (rail.height() >= 60)
+		if (rail.height() >= toast_->needed_height(rail.width()))
 			area = rail;
 	}
 	toast_->set_area(area);
@@ -818,12 +819,13 @@ void ClipDock::Impl::on_clip_sorted(const ClipSorted &clip)
 		original.kind = clip.kind;
 		const std::filesystem::path path = clip.original_path;
 		const std::weak_ptr<Shared> weak = shared_;
-		place_toast();
 		toast_->show_toast(ToastTone::warning, module_text("Dock.Toast.Failed").arg(clip_title(original, true)),
 				   utf8(clip.error), [weak, path] {
 					   with_live(weak, "showing a clip",
 						     [&path](Impl &impl) { impl.reveal_path(path); });
 				   });
+		// Placed once it has its text: in the bottom row, where it goes depends on how tall that text is.
+		place_toast();
 		break;
 	}
 	case MoveStatus::cancelled:
@@ -995,10 +997,11 @@ void ClipDock::Impl::toast_filed(const ClipEntry &clip, MoveStatus status)
 			       utf8(format_size(clip.size));
 	const std::filesystem::path path = clip.path;
 	const std::weak_ptr<Shared> weak = shared_;
-	place_toast();
 	toast_->show_toast(copied ? ToastTone::warning : ToastTone::success, title, detail, [weak, path] {
 		with_live(weak, "showing a clip", [&path](Impl &impl) { impl.reveal_path(path); });
 	});
+	// Placed once it has its text: in the bottom row, where it goes depends on how tall that text is.
+	place_toast();
 }
 
 // --- the list, its filters and the preview --------------------------------------------------------------------------

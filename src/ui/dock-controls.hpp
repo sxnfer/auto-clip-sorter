@@ -388,4 +388,13 @@ private:
 // would be noise, so a click alone shows none.
 void paint_focus_ring(QPainter &painter, const QWidget *widget, const QRectF &rect, qreal radius);
 
+// The room a raised card needs around it for its shadow, which falls a little below it.
+constexpr int kCardShadowSide = 10;
+constexpr int kCardShadowTop = 6;
+constexpr int kCardShadowBottom = 12;
+
+// Paints a card raised above the dock, such as the toast and the activity panel: a soft shadow, the elevated fill
+// and a border in the line colour. The widget keeps the shadow's room around `card`.
+void paint_elevated_card(QPainter &painter, const QPalette &palette, const QRectF &card, qreal radius);
+
 } // namespace clip_atlas

@@ -48,6 +48,10 @@ QColor line_color(const QPalette &palette);
 // mixed a little towards Text for a theme whose Window and Base are the same.
 QColor notice_fill(const QPalette &palette);
 
+// The fill of a surface raised above the dock, such as the toast and the activity panel: the base itself on a light
+// theme, a lighter shade of it on a dark one, where a shadow alone would not show.
+QColor elevated_fill(const QPalette &palette);
+
 // The accent as a text colour. Yami's Highlight is a deep blue that is hard to read on its dark base, so a dark base
 // gets it lightened.
 QColor accent_text(const QPalette &palette);
@@ -87,6 +91,8 @@ enum class DockIcon {
 	clear,
 	gamepad,
 	trash,
+	chevron_down,
+	chevron_up,
 };
 
 // Paints `icon` to fill the square `box`, in `color`.

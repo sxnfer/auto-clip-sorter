@@ -1,6 +1,12 @@
-// Clip Atlas — independently implemented from Arc's public interaction and motion documentation.
+// Clip Atlas — the activity pill and its details panel, drawn in the dock's Native Plus style (dock-style.hpp): the
+// pill is a capsule in the notice fill, like the Replay Buffer pill above it, and the panel an elevated card, like the
+// toast. Steps are the dock's stroke icons in the theme's success and warning colours rather than text symbols, and all
+// text is painted, so the OBS style sheet can't override its muted colour. The interaction and motion follow Arc's
+// public Agent Status documentation, implemented independently (docs/handover/activity-status.md).
 #include "activity-status.hpp"
 
+#include "dock-controls.hpp"
+#include "dock-style.hpp"
 #include "motion-preference.hpp"
 
 #include <obs-module.h>
@@ -9,11 +15,12 @@
 #include <QAccessibleWidget>
 #include <QApplication>
 #include <QElapsedTimer>
+#include <QFontMetrics>
 #include <QFrame>
 #include <QGraphicsOpacityEffect>
+#include <QHBoxLayout>
 #include <QHideEvent>
 #include <QKeyEvent>
-#include <QLabel>
 #include <QLinearGradient>
 #include <QPainter>
 #include <QPainterPath>
@@ -24,19 +31,37 @@
 #include <QScrollBar>
 #include <QStyle>
 #include <QTimer>
-#include <QToolButton>
-#include <QVariantAnimation>
 #include <QVBoxLayout>
+#include <QVariantAnimation>
+#include <QtMath>
 
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <optional>
 
 namespace clip_atlas {
 namespace {
 
-constexpr qreal kPanelRadius = 17;
-constexpr int kPanelInset = 6;
+// The pill: its height, padding and gaps in font heights, as the dock's chips; the leading mark's box; and its text, a
+// little smaller than the theme's font, as the Replay Buffer pill's.
+constexpr qreal kPillHeight = 1.5;
+constexpr qreal kPillPadding = 0.55;
+constexpr qreal kPillGap = 0.45;
+constexpr qreal kMarkSide = 0.95;
+constexpr qreal kLabelScale = 0.92;
+constexpr qreal kTimerScale = 0.86;
+constexpr qreal kChevronSide = 0.8;
+// The pill shows its timer only when it has this much room, in font heights, so a narrow dock keeps the label.
+constexpr qreal kTimerRoom = 11.0;
+// The panel: a card as wide as the dock allows, up to kMaxCardWidth, with its header pill inset from its edge.
+constexpr qreal kCardRadius = 10.0;
+constexpr int kCardInset = 6;
+constexpr int kMaxCardWidth = 384;
+constexpr int kMaxCardHeight = 420;
+// The panel's text, and its smaller lines: paths, the count and the history heading.
+constexpr qreal kBodyScale = 0.92;
+constexpr qreal kSmallScale = 0.86;
 
 QString module_text(const char *key)
 {
@@ -105,10 +130,148 @@ QString label(const Activity &a)
 	return module_text(remux ? "Activity.WaitingRemux" : "Activity.WaitingFile");
 }
 
-// The only continuously painted surface. It uses the host font and palette, including its focus colour.
+// What a pill's or a history entry's leading mark shows. The label says the same in words, so colour is never the
+// only signal.
+enum class Mark {
+	ready,
+	working,
+	waiting,
+	completed,
+	failed,
+	cancelled,
+};
+
+Mark mark_of(const Activity &a)
+{
+	switch (a.state) {
+	case ActivityState::working:
+		return Mark::working;
+	case ActivityState::waiting:
+		return Mark::waiting;
+	case ActivityState::completed:
+		return Mark::completed;
+	case ActivityState::failed:
+		return Mark::failed;
+	case ActivityState::cancelled:
+		return Mark::cancelled;
+	}
+	return Mark::ready;
+}
+
+// A step of a file in the panel. Step text carries the meaning; the icon repeats it in the theme's colours.
+enum class Step {
+	done,
+	current,
+	pending,
+	failed,
+	stopped,
+	notice,
+};
+
+// An outcome's badge: its icon in the theme's colour over a faint disc of the same colour, as the toast's.
+void paint_badge(QPainter &p, DockIcon icon, const QRectF &box, const QColor &tone)
+{
+	p.save();
+	p.setPen(Qt::NoPen);
+	p.setBrush(with_alpha(tone, 0.2));
+	p.drawEllipse(box);
+	const qreal inset = box.width() * 0.17;
+	paint_dock_icon(p, icon, box.adjusted(inset, inset, -inset, -inset), tone);
+	p.restore();
+}
+
+// A faint ring with an arc: the accent arc turning while work is under way, or a still muted quarter for a wait.
+void paint_ring(QPainter &p, const QRectF &box, const QPalette &pal, bool working, qreal spin)
+{
+	p.save();
+	const qreal stroke = std::max<qreal>(1.5, box.width() * 0.13);
+	const qreal half = stroke / 2.0 + 0.5;
+	const QRectF ring = box.adjusted(half, half, -half, -half);
+	p.setBrush(Qt::NoBrush);
+	p.setPen(QPen(with_alpha(pal.color(QPalette::Text), 0.16), stroke));
+	p.drawEllipse(ring);
+	p.setPen(QPen(working ? accent_text(pal) : muted_text(pal), stroke, Qt::SolidLine, Qt::RoundCap));
+	if (working)
+		p.drawArc(ring, qRound(-spin * 16.0), 100 * 16);
+	else
+		p.drawArc(ring, 90 * 16, -90 * 16);
+	p.restore();
+}
+
+void paint_dot(QPainter &p, const QRectF &box, qreal fraction, const QColor &color)
+{
+	p.save();
+	const qreal side = std::round(box.width() * fraction);
+	p.setPen(Qt::NoPen);
+	p.setBrush(color);
+	p.drawEllipse(QRectF(box.center().x() - side / 2.0, box.center().y() - side / 2.0, side, side));
+	p.restore();
+}
+
+void paint_mark(QPainter &p, Mark mark, const QRectF &box, const QPalette &pal, qreal spin)
+{
+	const ThemeAccents &accents = theme_accents();
+	switch (mark) {
+	case Mark::ready:
+		// Idle, as a stopped Replay Buffer is: a small muted dot.
+		paint_dot(p, box, 0.46, muted_text(pal));
+		break;
+	case Mark::working:
+		paint_ring(p, box, pal, true, spin);
+		break;
+	case Mark::waiting:
+		paint_ring(p, box, pal, false, spin);
+		break;
+	case Mark::completed:
+		paint_badge(p, DockIcon::check, box, accents.success);
+		break;
+	case Mark::failed:
+		paint_badge(p, DockIcon::warning, box, accents.warning);
+		break;
+	case Mark::cancelled:
+		paint_badge(p, DockIcon::clear, box, muted_text(pal));
+		break;
+	}
+}
+
+void paint_step(QPainter &p, Step step, const QRectF &box, const QPalette &pal)
+{
+	const ThemeAccents &accents = theme_accents();
+	switch (step) {
+	case Step::done:
+		paint_dock_icon(p, DockIcon::check, box, accents.success);
+		break;
+	case Step::failed:
+	case Step::notice:
+		paint_dock_icon(p, DockIcon::warning, box, accents.warning);
+		break;
+	case Step::stopped:
+		paint_dock_icon(p, DockIcon::clear, box.adjusted(1.0, 1.0, -1.0, -1.0), muted_text(pal));
+		break;
+	case Step::current: {
+		// Under way now: the accent dot inside a faint ring.
+		p.save();
+		p.setBrush(Qt::NoBrush);
+		p.setPen(QPen(with_alpha(accent_text(pal), 0.35), 1.5));
+		p.drawEllipse(box.adjusted(2.0, 2.0, -2.0, -2.0));
+		p.restore();
+		paint_dot(p, box, 0.36, accent_text(pal));
+		break;
+	}
+	case Step::pending:
+		p.save();
+		p.setBrush(Qt::NoBrush);
+		p.setPen(QPen(muted_text(pal), 1.5));
+		p.drawEllipse(box.adjusted(3.0, 3.0, -3.0, -3.0));
+		p.restore();
+		break;
+	}
+}
+
+// The pill. Its copy at the top of the panel is flat: it sits on the card, so it has no fill of its own.
 class ActivityPill : public QAbstractButton {
 public:
-	explicit ActivityPill(QWidget *parent) : QAbstractButton(parent)
+	ActivityPill(QWidget *parent, bool flat) : QAbstractButton(parent), flat_(flat)
 	{
 		setFocusPolicy(Qt::StrongFocus);
 		setCheckable(true);
@@ -130,17 +293,26 @@ public:
 		clock_.start();
 	}
 
-	QSize sizeHint() const override { return {display_width_, 36}; }
-	QSize minimumSizeHint() const override { return {80, 36}; }
+	QSize sizeHint() const override
+	{
+		ensurePolished();
+		return {display_width_ > 0 ? display_width_ : wanted_width(message_, !elapsed_.isEmpty()),
+			pill_height()};
+	}
+	QSize minimumSizeHint() const override
+	{
+		ensurePolished();
+		return {pill_height() * 3, pill_height()};
+	}
 
-	void present(const QString &message, int state, const QString &elapsed, bool reduced)
+	void present(const QString &message, Mark mark, const QString &elapsed, bool reduced)
 	{
 		reduced_ = reduced;
 		elapsed_ = elapsed;
-		if (message != message_ || state != state_) {
+		if (message != message_ || mark != mark_) {
 			previous_ = message_;
 			message_ = message;
-			state_ = state;
+			mark_ = mark;
 			roll_.stop();
 			transition_ = 1;
 			if (!reduced && isVisible() && !previous_.isEmpty()) {
@@ -152,13 +324,9 @@ public:
 			setToolTip(message);
 			QAccessibleEvent announcement(this, QAccessible::NameChanged);
 			QAccessible::updateAccessibility(&announcement);
-			updateGeometry();
-			const int target = fontMetrics().horizontalAdvance(message_) + 64 +
-					   (elapsed.isEmpty()
-						    ? 0
-						    : fontMetrics().horizontalAdvance(QStringLiteral("000:00")) + 12);
+			const int target = wanted_width(message_, !elapsed.isEmpty());
 			width_motion_.stop();
-			if (!reduced && isVisible()) {
+			if (!reduced && isVisible() && display_width_ > 0) {
 				width_motion_.setStartValue(display_width_);
 				width_motion_.setEndValue(target);
 				width_motion_.start();
@@ -203,6 +371,18 @@ protected:
 		QAbstractButton::hideEvent(event);
 	}
 
+	void changeEvent(QEvent *event) override
+	{
+		QAbstractButton::changeEvent(event);
+		// The theme's font sets the pill's height and the room its label needs.
+		if (event->type() == QEvent::FontChange) {
+			display_width_ = wanted_width(message_, !elapsed_.isEmpty());
+			updateGeometry();
+		}
+		if (event->type() == QEvent::PaletteChange || event->type() == QEvent::StyleChange)
+			update();
+	}
+
 	void keyPressEvent(QKeyEvent *event) override
 	{
 		if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) {
@@ -216,100 +396,137 @@ protected:
 	void paintEvent(QPaintEvent *) override
 	{
 		QPainter p(this);
-		p.setFont(font());
 		p.setRenderHint(QPainter::Antialiasing);
-		const auto pal = palette();
-		const QColor ink = pal.color(QPalette::Text);
-		const QColor muted = pal.color(QPalette::PlaceholderText);
-		const QColor accent = pal.color(QPalette::Highlight);
-		const QRectF shell = QRectF(rect()).adjusted(1, 1, -1, -1);
-		p.setBrush(pal.color(underMouse() || isDown() ? QPalette::Midlight : QPalette::Base));
-		QColor border = pal.color(QPalette::Mid);
-		border.setAlphaF(0.65);
-		p.setPen(QPen(border, 1));
-		p.drawRoundedRect(shell, 17, 17);
-		if (hasFocus()) {
-			p.setBrush(Qt::NoBrush);
-			p.setPen(QPen(accent, 1.5));
-			p.drawRoundedRect(shell.adjusted(2, 2, -2, -2), 14, 14);
+		const QPalette &pal = palette();
+		const int font_height = QFontMetrics(font()).height();
+		const QRectF shell = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
+		const qreal radius = shell.height() / 2.0;
+
+		// The notice fill, as the Replay Buffer pill's, then a shade towards the text under the mouse, while pressed
+		// and while the panel is open. The panel's flat copy shades only.
+		p.setPen(Qt::NoPen);
+		if (!flat_) {
+			p.setBrush(notice_fill(pal));
+			p.drawRoundedRect(shell, radius, radius);
 		}
-		const QPointF centre(20, height() / 2.0);
-		const QRectF ring(centre.x() - 10, centre.y() - 10, 20, 20);
-		p.setBrush(Qt::NoBrush);
-		p.setPen(QPen(border, 1.3));
-		p.drawEllipse(ring);
-		const qreal spin = reduced_ ? 45 : std::fmod(clock_.elapsed() * 0.24, 360.0);
-		p.setPen(QPen(state_ == 1 ? accent : ink, 1.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-		if (state_ == 1)
-			p.drawArc(ring, static_cast<int>(-spin * 16), 100 * 16);
-		else if (state_ == 3 || state_ == 4)
-			p.drawArc(ring, 90 * 16, static_cast<int>(-360 * 16 * transition_));
-		QPainterPath glyph;
-		if (state_ == 3) {
-			glyph.moveTo(centre + QPointF(-4, 0));
-			glyph.lineTo(centre + QPointF(-1, 3));
-			glyph.lineTo(centre + QPointF(4, -3));
-		} else if (state_ == 4 || state_ == 5) {
-			glyph.moveTo(centre + QPointF(-3, -3));
-			glyph.lineTo(centre + QPointF(3, 3));
-			glyph.moveTo(centre + QPointF(3, -3));
-			glyph.lineTo(centre + QPointF(-3, 3));
-		} else {
-			// An independent atlas mark, rather than the reference's agent logo.
-			glyph.moveTo(centre + QPointF(0, -4));
-			glyph.lineTo(centre + QPointF(4, 0));
-			glyph.lineTo(centre + QPointF(0, 4));
-			glyph.lineTo(centre + QPointF(-4, 0));
-			glyph.closeSubpath();
+		qreal shade = 0.0;
+		if (isDown())
+			shade = 0.12;
+		else if (testAttribute(Qt::WA_UnderMouse))
+			shade = 0.07;
+		else if (isChecked() && !flat_)
+			shade = 0.07;
+		if (shade > 0.0) {
+			p.setBrush(with_alpha(pal.color(QPalette::Text), shade));
+			p.drawRoundedRect(shell, radius, radius);
 		}
-		p.drawPath(glyph);
-		const bool timer_visible = width() >= 215 && !elapsed_.isEmpty();
-		const int timer_width = timer_visible ? fontMetrics().horizontalAdvance(QStringLiteral("000:00")) + 12
-						      : 0;
-		const QRect text_room(39, 0, std::max(0, width() - 64 - timer_width), height());
+
+		const int padding = qRound(font_height * kPillPadding);
+		const int gap = qRound(font_height * kPillGap);
+		const qreal mark_side = std::round(font_height * kMarkSide);
+		const QRectF mark_box(padding, (height() - mark_side) / 2.0, mark_side, mark_side);
+		const qreal spin = reduced_ ? 45.0 : std::fmod(static_cast<double>(clock_.elapsed()) * 0.24, 360.0);
+		p.save();
+		// An outcome's badge fades in as its label rolls in.
+		if (mark_ == Mark::completed || mark_ == Mark::failed)
+			p.setOpacity(std::max(0.3, transition_));
+		paint_mark(p, mark_, mark_box, pal, spin);
+		p.restore();
+
+		const qreal chevron_side = std::round(font_height * kChevronSide);
+		const QRectF chevron_box(width() - padding - chevron_side, (height() - chevron_side) / 2.0,
+					 chevron_side, chevron_side);
+		paint_dock_icon(p, isChecked() ? DockIcon::chevron_up : DockIcon::chevron_down, chevron_box,
+				muted_text(pal));
+
+		const bool timer_visible = !elapsed_.isEmpty() && width() >= qRound(font_height * kTimerRoom);
+		const int timer_room = timer_visible ? timer_width() + gap : 0;
+		const int text_left = qRound(mark_box.right()) + gap;
+		const int text_right = qRound(chevron_box.left()) - gap - timer_room;
+		const QRect text_room(text_left, 0, std::max(0, text_right - text_left), height());
+		const QFont label = label_font();
+		const QFontMetrics label_metrics(label);
+		// Idle reads as a hint, not news: Ready is muted.
+		const QColor ink = mark_ == Mark::ready ? muted_text(pal) : pal.color(QPalette::Text);
 		p.save();
 		p.setClipRect(text_room);
+		p.setFont(label);
 		auto draw_label = [&](const QString &value, qreal opacity, int y) {
 			p.setOpacity(opacity);
 			p.setPen(ink);
-			if (state_ == 1 && !reduced_) {
-				const qreal sweep = std::fmod(clock_.elapsed() / 2400.0, 1.0);
+			if (mark_ == Mark::working && !reduced_) {
+				// A soft sweep of the muted colour across the label while work is under way.
+				const qreal sweep = std::fmod(static_cast<double>(clock_.elapsed()) / 2400.0, 1.0);
 				QLinearGradient shimmer(text_room.left() - text_room.width() +
 								sweep * text_room.width() * 3,
 							0, text_room.left() + sweep * text_room.width() * 3, 0);
 				shimmer.setColorAt(0, ink);
-				shimmer.setColorAt(0.5, pal.color(QPalette::PlaceholderText));
+				shimmer.setColorAt(0.5, muted_text(pal));
 				shimmer.setColorAt(1, ink);
 				p.setPen(QPen(QBrush(shimmer), 1));
 			}
-			p.drawText(text_room.translated(0, y), Qt::AlignVCenter | Qt::AlignLeft,
-				   fontMetrics().elidedText(value, Qt::ElideRight, text_room.width()));
+			p.drawText(text_room.translated(0, y), Qt::AlignVCenter | Qt::AlignLeft | Qt::TextSingleLine,
+				   label_metrics.elidedText(value, Qt::ElideRight, text_room.width()));
 		};
 		if (transition_ < 1)
-			draw_label(previous_, 1 - transition_, static_cast<int>(-10 * transition_));
-		draw_label(message_, transition_, static_cast<int>(10 * (1 - transition_)));
+			draw_label(previous_, 1 - transition_, qRound(-0.5 * font_height * transition_));
+		draw_label(message_, transition_, qRound(0.5 * font_height * (1 - transition_)));
 		p.restore();
-		p.setPen(muted);
+
 		if (timer_visible) {
-			// Fixed cells keep the counter steady even with a proportional host font.
-			const int cell = fontMetrics().horizontalAdvance(QLatin1Char('0'));
-			int x = width() - 28 - elapsed_.size() * cell;
+			// Digits in fixed cells keep the counter steady even with a proportional theme font; the colon keeps
+			// its own width.
+			const QFont timer = scaled_font(font(), kTimerScale);
+			p.setFont(timer);
+			p.setPen(muted_text(pal));
+			int x = qRound(chevron_box.left()) - gap - text_cells_width(elapsed_);
 			for (const QChar c : elapsed_) {
+				const int cell = cell_width(c);
 				p.drawText(QRect(x, 0, cell, height()), Qt::AlignCenter, QString(c));
 				x += cell;
 			}
 		}
-		const qreal y = height() / 2.0;
-		p.setPen(QPen(muted, 1.3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-		const qreal direction = isChecked() ? -1 : 1;
-		p.drawLine(QPointF(width() - 18, y - direction * 2), QPointF(width() - 15, y + direction));
-		p.drawLine(QPointF(width() - 15, y + direction), QPointF(width() - 12, y - direction * 2));
+		paint_focus_ring(p, this, shell, radius);
 	}
 
 private:
+	QFont label_font() const { return scaled_font(font(), kLabelScale); }
+
+	int pill_height() const { return qRound(QFontMetrics(font()).height() * kPillHeight); }
+
+	int cell_width(QChar c) const
+	{
+		const QFontMetrics metrics(scaled_font(font(), kTimerScale));
+		return metrics.horizontalAdvance(c.isDigit() ? QChar(QLatin1Char('0')) : c);
+	}
+
+	int text_cells_width(const QString &text) const
+	{
+		int width = 0;
+		for (const QChar c : text)
+			width += cell_width(c);
+		return width;
+	}
+
+	// "000:00" in the timer's cells, so the pill doesn't change width as the seconds count.
+	int timer_width() const { return text_cells_width(QStringLiteral("000:00")); }
+
+	int wanted_width(const QString &message, bool with_timer) const
+	{
+		const int font_height = QFontMetrics(font()).height();
+		const int gap = qRound(font_height * kPillGap);
+		int width = 2 * qRound(font_height * kPillPadding) + qRound(font_height * kMarkSide) + 2 * gap +
+			    qCeil(QFontMetricsF(label_font()).horizontalAdvance(message)) + 1 +
+			    qRound(font_height * kChevronSide);
+		if (with_timer)
+			width += timer_width() + gap;
+		return width;
+	}
+
+	bool flat_;
 	QString message_, previous_, elapsed_;
-	int state_ = 0;
-	int display_width_ = 180;
+	Mark mark_ = Mark::ready;
+	int display_width_ = 0;
 	bool reduced_ = false;
 	qreal transition_ = 1;
 	QElapsedTimer clock_;
@@ -357,27 +574,28 @@ QAccessibleInterface *accessible_factory(const QString &, QObject *object)
 	return nullptr;
 }
 
+// The details panel: a popup holding an elevated card, with the card's shadow in a transparent margin around it. Its
+// contents margins are that margin, so its layout and contentsRect() start at the card's edge. The system's own popup
+// shadow is turned off: it would be square around the rounded card.
 class ActivityPanel : public QFrame {
 public:
-	explicit ActivityPanel(QWidget *owner) : QFrame(owner, Qt::Popup)
+	explicit ActivityPanel(QWidget *owner) : QFrame(owner, Qt::Popup | Qt::NoDropShadowWindowHint)
 	{
 		setObjectName(QStringLiteral("activityPanel"));
 		setAttribute(Qt::WA_TranslucentBackground);
 		setAttribute(Qt::WA_WindowPropagation);
+		setContentsMargins(kCardShadowSide, kCardShadowTop, kCardShadowSide, kCardShadowBottom);
 	}
 
 protected:
 	void paintEvent(QPaintEvent *) override
 	{
 		QPainter p(this);
-		p.setRenderHint(QPainter::Antialiasing);
-		p.setPen(QPen(palette().color(QPalette::Mid), 1));
-		p.setBrush(palette().color(QPalette::Base));
-		p.drawRoundedRect(QRectF(rect()).adjusted(1, 1, -1, -1), kPanelRadius, kPanelRadius);
+		paint_elevated_card(p, palette(), QRectF(contentsRect()), kCardRadius);
 	}
 };
 
-// Clip the complete information surface, including its scrolling children, during the existing fade.
+// Clips the scrolling body, children included, to the card's rounded inner edge during the panel's fade.
 class InformationSurfaceEffect : public QGraphicsOpacityEffect {
 public:
 	using QGraphicsOpacityEffect::QGraphicsOpacityEffect;
@@ -397,8 +615,8 @@ protected:
 			shape.setRenderHint(QPainter::Antialiasing);
 			shape.setPen(Qt::NoPen);
 			shape.setBrush(Qt::white);
-			// The inner and outer curves share their corner centres at this uniform inset.
-			const qreal radius = kPanelRadius - (kPanelInset - 1);
+			// The inner and outer curves share their corner centres at the card's inset.
+			const qreal radius = kCardRadius - (kCardInset - 1);
 			shape.drawRoundedRect(QRectF(QPointF(), source.deviceIndependentSize()), radius, radius);
 		}
 		QPixmap clipped(source.size());
@@ -411,21 +629,35 @@ protected:
 			composite.drawPixmap(0, 0, mask);
 		}
 		painter->save();
-		// Scroll viewports can occlude the parent's backing store. Supply the menu surface beneath the cutout.
+		// Scroll viewports can occlude the parent's backing store, so the card's own fill goes under the cutout.
 		if (const auto *surface = qobject_cast<QWidget *>(parent()))
 			painter->fillRect(QRectF(offset, source.deviceIndependentSize()),
-					  surface->palette().color(QPalette::Base));
+					  elevated_fill(surface->palette()));
 		painter->setOpacity(painter->opacity() * opacity());
 		painter->drawPixmap(offset, clipped);
 		painter->restore();
 	}
 };
 
-// Keep QProgressBar's accessibility value interface; only its paint is specialised.
+enum class ProgressTone {
+	working,
+	done,
+	failed,
+};
+
+// Keeps QProgressBar's accessible range and value; only its paint is the dock's: a thin rounded track with the accent
+// filling it as files are sorted, the theme's green once all are, its amber when the save failed. A theme that sets a
+// taller minimum for progress bars gets the same thin bar, centred.
 class StepProgress : public QProgressBar {
 public:
 	using QProgressBar::QProgressBar;
 	QSize sizeHint() const override { return {100, 4}; }
+
+	void set_tone(ProgressTone tone)
+	{
+		tone_ = tone;
+		update();
+	}
 
 protected:
 	void paintEvent(QPaintEvent *) override
@@ -433,30 +665,227 @@ protected:
 		QPainter p(this);
 		p.setRenderHint(QPainter::Antialiasing);
 		p.setPen(Qt::NoPen);
-		p.setBrush(palette().color(QPalette::Mid));
-		p.drawRoundedRect(QRectF(rect()), 2, 2);
-		if (maximum() > 0) {
-			p.setBrush(palette().color(QPalette::Highlight));
-			p.drawRoundedRect(QRectF(0, 0, width() * value() / qreal(maximum()), height()), 2, 2);
+		const QRectF track(0.0, (height() - 4) / 2.0, width(), 4.0);
+		p.setBrush(with_alpha(palette().color(QPalette::Text), 0.12));
+		p.drawRoundedRect(track, 2.0, 2.0);
+		if (maximum() > 0 && value() > 0) {
+			const ThemeAccents &accents = theme_accents();
+			p.setBrush(tone_ == ProgressTone::done     ? accents.success
+				   : tone_ == ProgressTone::failed ? accents.warning
+								   : palette().color(QPalette::Highlight));
+			const qreal filled = std::max(track.height(), track.width() * value() / qreal(maximum()));
+			p.drawRoundedRect(QRectF(track.left(), track.top(), filled, track.height()), 2.0, 2.0);
 		}
 	}
+
+private:
+	ProgressTone tone_ = ProgressTone::working;
 };
 
-QLabel *wrapped_label(const QString &value, QWidget *parent, bool secondary = false)
-{
-	auto *result = new QLabel(value, parent);
-	result->setTextFormat(Qt::PlainText);
-	result->setWordWrap(true);
-	auto policy = result->sizePolicy();
-	policy.setHorizontalPolicy(QSizePolicy::Ignored);
-	result->setSizePolicy(policy);
-	if (secondary) {
-		auto pal = result->palette();
-		pal.setColor(QPalette::WindowText, pal.color(QPalette::PlaceholderText));
-		result->setPalette(pal);
+// A line of the panel: an optional step icon, then text that wraps, then an optional time at the right in the muted
+// colour. Painted, so its muted tone holds under the theme's style sheet; its accessible name is its text.
+class StepRow : public QWidget {
+public:
+	struct Options {
+		std::optional<Step> step;
+		bool indent = false; // no icon, but text in line with the rows that have one
+		TextTone tone = TextTone::normal;
+		qreal scale = kBodyScale;
+		QFont::Weight weight = QFont::Normal;
+		QString trailing;
+	};
+
+	StepRow(const QString &text, const Options &options, QWidget *parent)
+		: QWidget(parent),
+		  text_(text),
+		  options_(options)
+	{
+		QSizePolicy policy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+		policy.setHeightForWidth(true);
+		setSizePolicy(policy);
+		setAccessibleName(options.trailing.isEmpty() ? text : text + QStringLiteral(", ") + options.trailing);
 	}
-	return result;
-}
+
+	bool hasHeightForWidth() const override { return true; }
+
+	int heightForWidth(int width) const override
+	{
+		ensurePolished();
+		const QFontMetrics metrics(text_font());
+		const int room = std::max(1, width - text_left() - trailing_room());
+		const int text_height =
+			metrics.boundingRect(QRect(0, 0, room, 100000), Qt::TextWordWrap | Qt::AlignLeft, text_)
+				.height();
+		return std::max({text_height, metrics.height(), icon_side()});
+	}
+
+	QSize sizeHint() const override
+	{
+		ensurePolished();
+		return {200, heightForWidth(200)};
+	}
+
+	QSize minimumSizeHint() const override
+	{
+		ensurePolished();
+		return {text_left() + trailing_room() + QFontMetrics(text_font()).averageCharWidth() * 6,
+			QFontMetrics(text_font()).height()};
+	}
+
+protected:
+	void paintEvent(QPaintEvent *) override
+	{
+		QPainter p(this);
+		p.setRenderHint(QPainter::Antialiasing);
+		const QPalette &pal = palette();
+		const QFont used = text_font();
+		const QFontMetrics metrics(used);
+		// The icon sits level with the first line.
+		if (options_.step) {
+			const qreal side = icon_side();
+			paint_step(p, *options_.step, QRectF(0.0, (metrics.height() - side) / 2.0, side, side), pal);
+		}
+		QColor color = pal.color(QPalette::Text);
+		if (options_.tone == TextTone::muted)
+			color = muted_text(pal);
+		else if (options_.tone == TextTone::accent)
+			color = accent_text(pal);
+		p.setFont(used);
+		p.setPen(color);
+		const int room = std::max(0, width() - text_left() - trailing_room());
+		p.drawText(QRect(text_left(), 0, room, height()), Qt::TextWordWrap | Qt::AlignLeft | Qt::AlignTop,
+			   text_);
+		if (!options_.trailing.isEmpty()) {
+			const QFont small = scaled_font(font(), kSmallScale);
+			p.setFont(small);
+			p.setPen(muted_text(pal));
+			p.drawText(QRect(width() - trailing_width(), 0, trailing_width(), metrics.height()),
+				   Qt::AlignRight | Qt::AlignVCenter | Qt::TextSingleLine, options_.trailing);
+		}
+	}
+
+	void changeEvent(QEvent *event) override
+	{
+		QWidget::changeEvent(event);
+		if (event->type() == QEvent::FontChange)
+			updateGeometry();
+		if (event->type() == QEvent::PaletteChange || event->type() == QEvent::StyleChange)
+			update();
+	}
+
+private:
+	QFont text_font() const { return scaled_font(font(), options_.scale, options_.weight); }
+
+	int icon_side() const
+	{
+		return options_.step || options_.indent ? qRound(QFontMetrics(font()).height() * 0.85) : 0;
+	}
+
+	int text_left() const
+	{
+		return options_.step || options_.indent ? icon_side() + qRound(QFontMetrics(font()).height() * 0.45)
+							: 0;
+	}
+
+	int trailing_width() const
+	{
+		if (options_.trailing.isEmpty())
+			return 0;
+		return qCeil(QFontMetricsF(scaled_font(font(), kSmallScale)).horizontalAdvance(options_.trailing)) + 1;
+	}
+
+	int trailing_room() const
+	{
+		return options_.trailing.isEmpty() ? 0 : trailing_width() + qRound(QFontMetrics(font()).height() * 0.6);
+	}
+
+	QString text_;
+	Options options_;
+};
+
+// A save in the history: its outcome's mark, then its summary, elided. A flat row like the clip list's: filled under
+// the mouse, tinted with the accent when it is the save the panel shows.
+class HistoryEntry : public QAbstractButton {
+public:
+	HistoryEntry(Mark mark, const QString &text, bool shown, QWidget *parent)
+		: QAbstractButton(parent),
+		  mark_(mark),
+		  shown_(shown)
+	{
+		setText(text);
+		setObjectName(QStringLiteral("activityHistoryEntry"));
+		setFocusPolicy(Qt::StrongFocus);
+		setCursor(Qt::PointingHandCursor);
+		setAttribute(Qt::WA_Hover);
+		setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+	}
+
+	QSize sizeHint() const override
+	{
+		ensurePolished();
+		return {120, qRound(QFontMetrics(font()).height() * 1.75)};
+	}
+	QSize minimumSizeHint() const override { return sizeHint(); }
+
+protected:
+	void keyPressEvent(QKeyEvent *event) override
+	{
+		// Enter chooses a save, as it opens the pill.
+		if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) {
+			click();
+			event->accept();
+			return;
+		}
+		QAbstractButton::keyPressEvent(event);
+	}
+
+	void paintEvent(QPaintEvent *) override
+	{
+		QPainter p(this);
+		p.setRenderHint(QPainter::Antialiasing);
+		const QPalette &pal = palette();
+		const int font_height = QFontMetrics(font()).height();
+		const QRectF box = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
+		p.setPen(Qt::NoPen);
+		if (shown_) {
+			p.setBrush(with_alpha(pal.color(QPalette::Highlight), 0.24));
+			p.drawRoundedRect(box, 6.0, 6.0);
+		}
+		qreal shade = 0.0;
+		if (isDown())
+			shade = 0.12;
+		else if (testAttribute(Qt::WA_UnderMouse))
+			shade = 0.07;
+		if (shade > 0.0) {
+			p.setBrush(with_alpha(pal.color(QPalette::Text), shade));
+			p.drawRoundedRect(box, 6.0, 6.0);
+		}
+		const int padding = qRound(font_height * 0.45);
+		const qreal side = std::round(font_height * 0.85);
+		paint_mark(p, mark_, QRectF(padding, (height() - side) / 2.0, side, side), pal, 45.0);
+		const QFont label = scaled_font(font(), kBodyScale);
+		const int text_left = padding + qRound(side) + qRound(font_height * 0.45);
+		const QRect text_room(text_left, 0, std::max(0, width() - text_left - padding), height());
+		p.setFont(label);
+		p.setPen(pal.color(QPalette::Text));
+		p.drawText(text_room, Qt::AlignLeft | Qt::AlignVCenter | Qt::TextSingleLine,
+			   QFontMetrics(label).elidedText(text(), Qt::ElideRight, text_room.width()));
+		paint_focus_ring(p, this, box, 6.0);
+	}
+
+	void changeEvent(QEvent *event) override
+	{
+		QAbstractButton::changeEvent(event);
+		if (event->type() == QEvent::FontChange)
+			updateGeometry();
+		if (event->type() == QEvent::PaletteChange || event->type() == QEvent::StyleChange)
+			update();
+	}
+
+private:
+	Mark mark_;
+	bool shown_;
+};
 
 } // namespace
 
@@ -482,7 +911,7 @@ struct ActivityStatus::Impl {
 	{
 		if (accessibility_users++ == 0)
 			QAccessible::installFactory(accessible_factory);
-		pill = new ActivityPill(owner);
+		pill = new ActivityPill(owner, false);
 		pill->setObjectName(QStringLiteral("activityPill"));
 		auto *root = new QHBoxLayout(owner);
 		root->setContentsMargins(4, 0, 4, 0);
@@ -491,15 +920,18 @@ struct ActivityStatus::Impl {
 		panel = new ActivityPanel(owner);
 		panel->setAccessibleName(module_text("Activity.Details"));
 		auto *layout = new QVBoxLayout(panel);
-		layout->setContentsMargins(kPanelInset, kPanelInset, kPanelInset, kPanelInset);
-		layout->setSpacing(8);
-		panel_pill = new ActivityPill(panel);
+		layout->setContentsMargins(kCardInset, kCardInset, kCardInset, kCardInset);
+		layout->setSpacing(kCardInset);
+		panel_pill = new ActivityPill(panel, true);
 		panel_pill->setObjectName(QStringLiteral("activityPanelPill"));
 		layout->addWidget(panel_pill);
+		layout->addWidget(new HairLine(Qt::Horizontal, panel));
 		scroll = new QScrollArea(panel);
 		scroll->setFrameShape(QFrame::NoFrame);
 		scroll->setWidgetResizable(true);
 		scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+		scroll->setAutoFillBackground(false);
+		scroll->viewport()->setAutoFillBackground(false);
 		layout->addWidget(scroll, 1);
 		opacity = new InformationSurfaceEffect(scroll);
 		scroll->setGraphicsEffect(opacity);
@@ -561,17 +993,13 @@ struct ActivityStatus::Impl {
 		const auto *details = shown();
 		auto present = [&](ActivityPill *control, const Activity *a, bool ready) {
 			QString message = module_text("Activity.Ready"), elapsed;
-			int state = 0;
+			Mark mark = Mark::ready;
 			if (a && !ready) {
 				message = label(*a);
-				state = a->state == ActivityState::working     ? 1
-					: a->state == ActivityState::waiting   ? 2
-					: a->state == ActivityState::completed ? 3
-					: a->state == ActivityState::failed    ? 4
-									       : 5;
+				mark = mark_of(*a);
 				elapsed = duration((live(*a) ? ActivityClock::now() : a->ended_at) - a->started_at);
 			}
-			control->present(message, state, elapsed, reduced || stopped);
+			control->present(message, mark, elapsed, reduced || stopped);
 			if (a && a->state == ActivityState::failed) {
 				QString failure = message;
 				for (const auto &file : a->files) {
@@ -601,21 +1029,42 @@ struct ActivityStatus::Impl {
 		}
 	}
 
+	// The panel's window when it is closed: its card just around the pill, its shadow's room outside that.
+	QRect collapsed_geometry() const
+	{
+		const QRect card(pill->mapToGlobal(QPoint(-kCardInset, -kCardInset)),
+				 pill->size() + QSize(2 * kCardInset, 2 * kCardInset));
+		return card.adjusted(-kCardShadowSide, -kCardShadowTop, kCardShadowSide, kCardShadowBottom);
+	}
+
+	// Open: the card as wide as the dock allows up to kMaxCardWidth, as tall as its content up to kMaxCardHeight, its
+	// header pill over the pill it opens from, kept on the screen.
 	QRect target_geometry() const
 	{
 		const QRect screen = owner->screen()->availableGeometry().adjusted(6, 6, -6, -6);
-		const int width = std::max(1, std::min({384, owner->width(), screen.width()}));
+		// The card starts just left of the pill, and leaves the same margin at the dock's right edge.
+		const int side = std::max(0, pill->mapTo(owner, QPoint(0, 0)).x() - kCardInset);
+		const int card_width = std::max(
+			1, std::min({kMaxCardWidth, owner->width() - 2 * side, screen.width() - 2 * kCardShadowSide}));
 		const QWidget *body = scroll->widget();
-		const int content_height =
-			body && body->layout() ? (body->layout()->hasHeightForWidth()
-							  ? body->layout()->totalHeightForWidth(std::max(1, width - 36))
-							  : body->layout()->sizeHint().height())
-					       : 60;
-		const int height = std::min({400, screen.height(), std::max(110, content_height + 64)});
-		QPoint at = pill->mapToGlobal(QPoint(0, 0));
-		at.setX(std::clamp(at.x(), screen.left(), screen.right() - width + 1));
-		at.setY(std::clamp(at.y(), screen.top(), screen.bottom() - height + 1));
-		return {at, QSize(width, height)};
+		const int body_width = std::max(1, card_width - 2 * kCardInset);
+		const int content_height = body && body->layout()
+						   ? (body->layout()->hasHeightForWidth()
+							      ? body->layout()->totalHeightForWidth(body_width)
+							      : body->layout()->sizeHint().height())
+						   : 60;
+		const int header = panel_pill->sizeHint().height() + 1 + 3 * kCardInset;
+		const int card_height = std::min({kMaxCardHeight, screen.height() - kCardShadowTop - kCardShadowBottom,
+						  std::max(header + 60, header + content_height + kCardInset)});
+		QPoint card_at = pill->mapToGlobal(QPoint(-kCardInset, -kCardInset));
+		card_at.setX(std::clamp(card_at.x(), screen.left() + kCardShadowSide,
+					std::max(screen.left() + kCardShadowSide,
+						 screen.right() + 1 - kCardShadowSide - card_width)));
+		card_at.setY(std::clamp(card_at.y(), screen.top() + kCardShadowTop,
+					std::max(screen.top() + kCardShadowTop,
+						 screen.bottom() + 1 - kCardShadowBottom - card_height)));
+		return QRect(card_at - QPoint(kCardShadowSide, kCardShadowTop),
+			     QSize(card_width + 2 * kCardShadowSide, card_height + kCardShadowTop + kCardShadowBottom));
 	}
 
 	void rebuild()
@@ -625,50 +1074,65 @@ struct ActivityStatus::Impl {
 		auto *body = new QWidget;
 		body->setPalette(panel->palette());
 		auto *rows = new QVBoxLayout(body);
-		rows->setContentsMargins(10, 0, 10, 0);
-		rows->setSpacing(10);
+		rows->setContentsMargins(kCardInset, 2, kCardInset, kCardInset);
+		rows->setSpacing(6);
 		const Activity *a = shown();
 		if (!a) {
-			rows->addWidget(wrapped_label(module_text("Activity.Empty"), body, true));
+			StepRow::Options empty;
+			empty.tone = TextTone::muted;
+			rows->addWidget(new StepRow(module_text("Activity.Empty"), empty, body));
 		} else {
-			rows->addWidget(wrapped_label(module_text("Activity.Accepted").arg(kind_name(a->kind)), body));
 			const auto completed =
 				std::count_if(a->files.begin(), a->files.end(), [](const ActivityFile &f) {
 					return f.phase == ActivityPhase::completed;
 				});
 			const QString count = module_text("Activity.Count").arg(completed).arg(a->files.size());
+			// The save: received, with its count at the right, then how far it has got.
+			StepRow::Options received;
+			received.step = Step::done;
+			received.weight = QFont::DemiBold;
+			received.trailing = count;
+			rows->addWidget(
+				new StepRow(module_text("Activity.Accepted").arg(kind_name(a->kind)), received, body));
 			auto *progress = new StepProgress(body);
 			progress->setRange(0, static_cast<int>(a->files.size()));
 			progress->setValue(static_cast<int>(completed));
-			progress->setFixedHeight(4);
+			progress->setFixedHeight(6);
 			progress->setAccessibleName(count);
+			progress->set_tone(a->state == ActivityState::failed      ? ProgressTone::failed
+					   : a->state == ActivityState::completed ? ProgressTone::done
+										  : ProgressTone::working);
 			rows->addWidget(progress);
-			rows->addWidget(wrapped_label(count, body, true));
 			for (const auto &file : a->files) {
-				auto *group = new QWidget(body);
-				auto *steps = new QVBoxLayout(group);
-				steps->setContentsMargins(0, 4, 0, 4);
-				steps->setSpacing(6);
-				// Paths are plain text and wrap even when no spaces are available.
+				rows->addSpacing(4);
+				// The file, muted, then its steps under it. Paths are plain text and wrap even without spaces.
 				QString path = QString::fromStdString(file.path);
 				path.replace(QLatin1Char('/'), QStringLiteral("/\u200b"));
 				path.replace(QLatin1Char('\\'), QStringLiteral("\\\u200b"));
-				auto *name = wrapped_label(path, group, true);
-				name->setAccessibleName(QString::fromStdString(file.path));
-				steps->addWidget(name);
+				StepRow::Options name;
+				name.tone = TextTone::muted;
+				name.scale = kSmallScale;
+				auto *path_row = new StepRow(path, name, body);
+				path_row->setAccessibleName(QString::fromStdString(file.path));
+				rows->addWidget(path_row);
+
 				const bool waiting = file.phase == ActivityPhase::waiting;
 				const bool complete = file.phase == ActivityPhase::completed;
 				const bool failed = file.phase == ActivityPhase::failed;
 				const bool cancelled = file.phase == ActivityPhase::cancelled;
 				const bool missing = file.phase == ActivityPhase::unavailable;
-				QString ready = module_text(
+				// Settling: done once confirmed, under way while waiting, a caveat when the wait ended unconfirmed.
+				StepRow::Options ready;
+				ready.step = file.stability_confirmed ? Step::done
+					     : waiting                ? Step::current
+								      : Step::notice;
+				const char *ready_key =
 					waiting ? (file.remuxed ? "Activity.Step.Remux" : "Activity.Step.Waiting")
 					: file.stability_confirmed ? "Activity.Step.Ready"
-								   : "Activity.Step.WaitEnded");
-				steps->addWidget(wrapped_label(QString(file.stability_confirmed ? QChar(0x2713)
-												: QChar(0x25cb)) +
-								       QLatin1Char(' ') + ready,
-							       group));
+								   : "Activity.Step.WaitEnded";
+				rows->addWidget(new StepRow(module_text(ready_key), ready, body));
+
+				// Sorting.
 				const char *move_key = waiting     ? "Activity.Step.Pending"
 						       : complete  ? "Activity.Step.Completed"
 						       : failed    ? "Activity.Step.Failed"
@@ -676,41 +1140,53 @@ struct ActivityStatus::Impl {
 						       : missing   ? "Activity.Step.Unavailable"
 						       : file.phase == ActivityPhase::moving ? "Activity.Step.Moving"
 											     : "Activity.Step.Queued";
-				const QChar mark = complete                              ? QChar(0x2713)
-						   : (failed || cancelled || missing)    ? QChar(0x00d7)
-						   : file.phase == ActivityPhase::moving ? QChar(0x25c9)
-											 : QChar(0x25cb);
-				QString outcome = QString(mark) + QLatin1Char(' ') + module_text(move_key);
+				StepRow::Options move;
+				move.step = complete                              ? Step::done
+					    : failed                              ? Step::failed
+					    : (cancelled || missing)              ? Step::stopped
+					    : file.phase == ActivityPhase::moving ? Step::current
+										  : Step::pending;
+				if (waiting)
+					move.tone = TextTone::muted;
 				if (file.phase >= ActivityPhase::completed)
-					outcome += QStringLiteral("  ·  ") + duration(file.changed_at - a->started_at);
-				steps->addWidget(wrapped_label(outcome, group, waiting));
-				if (file.notice != ActivityNotice::none)
-					steps->addWidget(wrapped_label(notice(file.notice), group));
-				if (!file.detail.empty())
-					steps->addWidget(wrapped_label(
+					move.trailing = duration(file.changed_at - a->started_at);
+				rows->addWidget(new StepRow(module_text(move_key), move, body));
+
+				if (file.notice != ActivityNotice::none) {
+					StepRow::Options caveat;
+					caveat.step = Step::notice;
+					rows->addWidget(new StepRow(notice(file.notice), caveat, body));
+				}
+				if (!file.detail.empty()) {
+					// The backend's reason, in line with the step it explains.
+					StepRow::Options detail;
+					detail.indent = true;
+					rows->addWidget(new StepRow(
 						module_text("Activity.Detail").arg(QString::fromStdString(file.detail)),
-						group));
-				rows->addWidget(group);
+						detail, body));
+				}
 			}
 		}
 		if (model.activities().size() > 1) {
-			rows->addWidget(wrapped_label(module_text("Activity.Recent"), body, true));
+			rows->addSpacing(6);
+			rows->addWidget(new HairLine(Qt::Horizontal, body));
+			rows->addSpacing(2);
+			// A heading like the clip list's day headers.
+			StepRow::Options heading;
+			heading.scale = kSmallScale;
+			heading.weight = QFont::DemiBold;
+			rows->addWidget(new StepRow(module_text("Activity.Recent"), heading, body));
+			const std::uint64_t shown_id = a ? a->save_id : 0;
 			for (auto it = model.activities().rbegin(); it != model.activities().rend(); ++it) {
-				auto *entry = new QToolButton(body);
-				auto entry_palette = entry->palette();
-				entry_palette.setColor(QPalette::ButtonText, entry_palette.color(QPalette::Text));
-				entry->setPalette(entry_palette);
-				entry->setAutoRaise(true);
-				entry->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
 				const QString summary =
 					module_text("Activity.HistoryEntry")
 						.arg(label(*it), it->game.empty() ? module_text("Activity.Unsorted")
 										  : QString::fromStdString(it->game))
 						.arg(it->save_id);
-				entry->setText(summary);
+				auto *entry = new HistoryEntry(mark_of(*it), summary, it->save_id == shown_id, body);
 				entry->setToolTip(summary);
 				entry->setAccessibleName(module_text("Activity.Inspect").arg(summary));
-				QObject::connect(entry, &QToolButton::clicked, owner, [this, id = it->save_id] {
+				QObject::connect(entry, &QAbstractButton::clicked, owner, [this, id = it->save_id] {
 					selected = id;
 					rebuild();
 					refresh();
@@ -720,12 +1196,14 @@ struct ActivityStatus::Impl {
 			}
 		}
 		rows->addStretch();
-		// A history button can rebuild this panel from its own click handler.
+		// A history entry can rebuild this panel from its own click handler.
 		if (auto *previous = scroll->takeWidget()) {
 			previous->hide();
 			previous->deleteLater();
 		}
 		scroll->setWidget(body);
+		// QScrollArea fills the widget it holds with the window colour; the card's own fill shows through instead.
+		body->setAutoFillBackground(false);
 		scroll->verticalScrollBar()->setValue(position);
 		if (had_focus)
 			panel_pill->setFocus(Qt::OtherFocusReason);
@@ -793,8 +1271,7 @@ void ActivityStatus::set_expanded(bool expanded)
 	s.panel_pill->expansion(expanded);
 	s.expansion.stop();
 	if (expanded) {
-		const QRect from = s.panel->isVisible() ? s.panel->geometry()
-							: QRect(s.pill->mapToGlobal(QPoint(0, 0)), s.pill->size());
+		const QRect from = s.panel->isVisible() ? s.panel->geometry() : s.collapsed_geometry();
 		s.selected = 0;
 		s.panel->setPalette(palette());
 		s.panel->setFont(font());
@@ -803,9 +1280,9 @@ void ActivityStatus::set_expanded(bool expanded)
 		s.panel->setGeometry(from);
 		s.panel->show();
 		s.panel_pill->setFocus(Qt::PopupFocusReason);
-		if (s.reduced)
+		if (s.reduced) {
 			s.panel->setGeometry(target);
-		else {
+		} else {
 			s.expansion.setDuration(260);
 			s.expansion.setStartValue(s.panel->geometry());
 			s.expansion.setEndValue(target);
@@ -819,7 +1296,7 @@ void ActivityStatus::set_expanded(bool expanded)
 		} else {
 			s.expansion.setDuration(180);
 			s.expansion.setStartValue(s.panel->geometry());
-			s.expansion.setEndValue(QRect(s.pill->mapToGlobal(QPoint(0, 0)), s.pill->size()));
+			s.expansion.setEndValue(s.collapsed_geometry());
 			s.expansion.start();
 		}
 	}

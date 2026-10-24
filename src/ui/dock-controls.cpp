@@ -133,6 +133,25 @@ void paint_focus_ring(QPainter &painter, const QWidget *widget, const QRectF &re
 	painter.restore();
 }
 
+void paint_elevated_card(QPainter &painter, const QPalette &palette, const QRectF &card, qreal radius)
+{
+	painter.save();
+	painter.setRenderHint(QPainter::Antialiasing, true);
+	// Layers that grow and fade, a little below the card. A light theme needs less to show the same depth.
+	painter.setPen(Qt::NoPen);
+	const int alpha = is_light_palette(palette) ? 9 : 20;
+	for (int layer = 1; layer <= 6; ++layer) {
+		const qreal grow = layer * 1.4;
+		painter.setBrush(QColor(0, 0, 0, alpha));
+		painter.drawRoundedRect(card.adjusted(-grow, -grow + 3.0, grow, grow + 3.0), radius + grow,
+					radius + grow);
+	}
+	painter.setPen(QPen(line_color(palette), 1.0));
+	painter.setBrush(elevated_fill(palette));
+	painter.drawRoundedRect(card.adjusted(0.5, 0.5, -0.5, -0.5), radius, radius);
+	painter.restore();
+}
+
 // --- ChipButton -----------------------------------------------------------------------------------------------------
 
 ChipButton::ChipButton(QWidget *parent) : QAbstractButton(parent)
@@ -1261,6 +1280,7 @@ TextBlock::TextBlock(const QString &text, TextTone tone, qreal scale, QFont::Wei
 	: TextBlock(parent)
 {
 	text_ = text;
+	setAccessibleName(text_);
 	tone_ = tone;
 	scale_ = scale;
 	weight_ = weight;
@@ -1271,6 +1291,8 @@ void TextBlock::set_text(const QString &text)
 	if (text == text_)
 		return;
 	text_ = text;
+	// Painted text is invisible to a screen reader, so it is the widget's name too.
+	setAccessibleName(text_);
 	changed();
 }
 

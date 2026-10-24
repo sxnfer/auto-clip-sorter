@@ -1,8 +1,34 @@
 # Native activity status
 
-The dock now has a reusable Qt activity monitor directly below `StatusHeader`. Its compact pill opens a floating,
-scrollable details panel without moving the clip browser. Replay Buffer state, Auto-sort, banners and browser actions
-remain separate.
+The dock has a reusable Qt activity monitor directly below `StatusHeader`: under the header in the side column and
+the wide layout, and in the rail of the bottom-row layout (M6). Its compact pill opens a floating, scrollable details
+panel without moving the clip browser. Replay Buffer state, Auto-sort, banners and browser actions remain separate.
+
+## Style (Native Plus)
+
+The component follows the dock's design language (`docs/handover/M6-dock-spec.md`, `ui/dock-style`,
+`ui/dock-controls`), so it reads as one family with the header above it:
+
+- **Pill**: a capsule in the notice fill, the height of the dock's chips, like the Replay Buffer pill. No outline; a
+  shade towards the text on hover, press and while open; the accent focus ring only for keyboard focus. Its label is
+  the Replay Buffer pill's size, muted while idle ("Ready to sort"); the timer is muted and smaller, its digits in
+  fixed cells and its colon at its own width; the chevron is the dock's stroke icon.
+- **Leading mark**: a muted dot while idle, as a stopped Replay Buffer; a faint ring with a turning accent arc while
+  sorting, or a still muted quarter while waiting; and the toast's badges for outcomes: the theme's green check, its
+  amber warning sign, a muted cross for a cancellation. Green and amber come from `theme_accents()`.
+- **Panel**: an elevated card like the toast (`paint_elevated_card()`: soft shadow, raised fill, line-coloured
+  border, 10 px corners). The system's square popup shadow is turned off (`Qt::NoDropShadowWindowHint`). The header
+  pill is flat on the card, with a hairline under it; the body shares the card's fill.
+- **Steps**: stroke icons instead of text symbols: a green check when done, an accent dot in a faint ring when under
+  way, a muted ring when pending, an amber warning sign for a failure or a caveat, a muted cross when stopped. The
+  text says the same in words. The received row is semibold with the file count at the right; paths are muted and
+  smaller; a failure's details line up with the step text.
+- **Progress**: a thin rounded track with the accent filling it, the theme's green once every file is sorted, its
+  amber when the save failed, centred even if a theme sets a taller minimum for progress bars.
+- **History**: a heading like the clip list's day headers, under a hairline, then flat rows like the list's: the
+  outcome's mark and the summary, a hover fill, the save being shown tinted with the accent.
+- All text is painted from the palette (`muted_text()`, `accent_text()`), so OBS's style sheet can't override the
+  muted colour as it would a `QLabel`'s palette. Painted text keeps its words as the widget's accessible name.
 
 ## Reference and implementation
 
@@ -12,18 +38,19 @@ logos or assets were copied or incorporated. This is an independent C++17 / Qt W
 publicly documented appearance and behaviour. The public page's initial Ready state and documentation were inspected;
 a running interactive reference browser was unavailable, so no pixel-perfect comparison is claimed.
 
-The pill has a custom-painted atlas mark, live arc, completion check or failure cross, rolling label, subtle working
-shimmer, fixed-cell elapsed counter, hover feedback and focus outline. Label changes take 180 ms; width changes take
-240 ms; the popup opens in 260 ms and closes in 180 ms. The panel fades its content in 140 ms. These use Qt cubic easing,
-not Arc's physics spring. Success settles to Ready after four seconds; the panel keeps the result. Failures persist.
-Long labels elide in the pill and remain available through its accessible name, tooltip and wrapped panel content.
+The pill has a painted leading mark (above), a rolling label, a subtle working shimmer, a fixed-cell elapsed counter,
+hover feedback and a keyboard focus ring. Label changes take 180 ms; width changes take 240 ms; the popup opens in
+260 ms and closes in 180 ms. The panel fades its content in 140 ms. These use Qt cubic easing, not Arc's physics
+spring. Success settles to Ready after four seconds; the panel keeps the result. Failures persist. Long labels elide in
+the pill and remain available through its accessible name, tooltip and wrapped panel content.
 
-All production colours come from the host palette and all fonts from Qt. The popup explicitly inherits its owner's
-palette and font. It is capped at 384 px or the dock width, fits the current screen, and scrolls for split recordings
-and history. Resizing during expansion retargets its geometry. Timers stop while hidden or stopped; continuous painting
-is limited to live working indicators. Windows' `SPI_GETCLIENTAREAANIMATION` preference disables decorative motion;
-hosts can also call `set_reduced_motion()`. The OS preference is sampled at creation and when shown. Unsupported
-platforms have no detected system preference.
+All production colours come from the host palette through `ui/dock-style`, and all fonts are the theme's, scaled. The
+popup explicitly inherits its owner's palette and font. Its card is capped at 384 px or the dock width, less the same
+margin at each side, fits the current screen, and scrolls for split recordings and history; the popup's window adds
+room around the card for its shadow. Resizing during expansion retargets its geometry. Timers stop while hidden or
+stopped; continuous painting is limited to live working indicators. Windows' `SPI_GETCLIENTAREAANIMATION` preference
+disables decorative motion; hosts can also call `set_reduced_motion()`. The OS preference is sampled at creation and
+when shown. Unsupported platforms have no detected system preference.
 
 ## Data and threading
 
@@ -91,7 +118,8 @@ QT_QPA_PLATFORM=offscreen CLIP_ATLAS_CAPTURE_DIR="$PWD/docs/activity-preview" \
 
 Verified in this task:
 
-- **353/353 CTest entries passed:** 352 core tests and one executable containing nine native UI/filing tests.
+- **369/369 CTest entries passed** on top of M6 (with the Native Plus restyle): 368 core tests and one executable
+  containing nine native UI/filing tests.
 - Successful sorting, delayed remux output, original/remux grouping, split files, overlapping saves, real filesystem
   failures, duplicate/stale updates, bounded history, cancellation, shutdown, throwing observers and delivery after
   widget destruction.
@@ -109,17 +137,20 @@ Windows motion settings, screen readers and actual outside-click grabs still req
 ## Remaining visual differences
 
 - Qt cubic geometry transitions approximate the reference springs. Labels elide instead of using a right-edge mask.
-- The completion glyph changes during the ring closure rather than tracing Arc's precise logo morph.
+- The outcome badge fades in as the label rolls, rather than tracing Arc's precise logo morph.
 - Updated panel contents fade together; individual step rows do not slide independently, and progress fills discretely
   from actual completed-file counts.
 - The panel shows grouped files and a bounded save history rather than Arc's five most recent agent tool calls.
-- Colours, font and the atlas glyph follow Clip Atlas/OBS. Preview screenshots use test palettes, not an OBS theme.
+- Colours, font and marks follow the Clip Atlas dock and the OBS theme, not Arc. Preview screenshots use Yami-like
+  test palettes on the dock's base colour, not an OBS theme.
 
 ## Changed files
 
 - Model: `src/core/activity-model.{hpp,cpp}`.
 - Worker observation: `src/core/file-mover.{hpp,cpp}`.
-- Native view: `src/ui/activity-status.{hpp,cpp}`; integration: `src/ui/clip-dock.{hpp,cpp}`.
+- Native view: `src/ui/activity-status.{hpp,cpp}`; integration: `src/ui/clip-dock.{hpp,cpp}`. Native Plus styling
+  shared with the dock: `src/ui/dock-style.{hpp,cpp}` (chevrons, `elevated_fill()`) and `src/ui/dock-controls.{hpp,cpp}`
+  (`paint_elevated_card()`, which the toast uses too, and accessible names for painted text).
 - Motion preference: `src/platform/motion-preference.hpp`, `motion-preference-win.cpp`, `motion-preference-stub.cpp`.
 - Filing events: `src/obs/clip-filer.{hpp,cpp}`, `frontend-events.{hpp,cpp}`, `recording-events.{hpp,cpp}`.
 - Plugin dispatch: `src/plugin-main.cpp`; localisation: `data/locale/en-US.ini`.

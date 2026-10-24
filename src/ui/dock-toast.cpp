@@ -25,10 +25,10 @@ namespace clip_atlas {
 
 namespace {
 
-// Room around the card for its shadow, which falls a little below it.
-constexpr int kShadowSide = 10;
-constexpr int kShadowTop = 6;
-constexpr int kShadowBottom = 12;
+// Room around the card for its shadow, as paint_elevated_card() paints it.
+constexpr int kShadowSide = kCardShadowSide;
+constexpr int kShadowTop = kCardShadowTop;
+constexpr int kShadowBottom = kCardShadowBottom;
 constexpr qreal kRadius = 10.0;
 constexpr int kFadeInMs = 160;
 constexpr int kFadeOutMs = 220;
@@ -131,24 +131,8 @@ void DockToast::paintEvent(QPaintEvent *)
 	QPainter painter(this);
 	painter.setRenderHint(QPainter::Antialiasing, true);
 	const QPalette &pal = palette();
-	const bool light = is_light_palette(pal);
 	const QRectF card = QRectF(rect()).adjusted(kShadowSide, kShadowTop, -kShadowSide, -kShadowBottom);
-
-	// A soft shadow, a little below the card: layers that grow and fade.
-	painter.setPen(Qt::NoPen);
-	for (int layer = 1; layer <= 6; ++layer) {
-		const qreal grow = layer * 1.4;
-		painter.setBrush(QColor(0, 0, 0, light ? 9 : 20));
-		painter.drawRoundedRect(card.adjusted(-grow, -grow + 3.0, grow, grow + 3.0), kRadius + grow,
-					kRadius + grow);
-	}
-
-	// Raised above the dock: the base itself on a light theme, a lighter shade of it on a dark one.
-	const QColor fill = light ? pal.color(QPalette::Base)
-				  : mix_colors(pal.color(QPalette::Base), pal.color(QPalette::Text), 0.08);
-	painter.setPen(QPen(line_color(pal), 1.0));
-	painter.setBrush(fill);
-	painter.drawRoundedRect(card.adjusted(0.5, 0.5, -0.5, -0.5), kRadius, kRadius);
+	paint_elevated_card(painter, pal, card, kRadius);
 
 	const ThemeAccents &accents = theme_accents();
 	const QColor tone = tone_ == ToastTone::success ? accents.success : accents.warning;
@@ -190,18 +174,29 @@ void DockToast::changeEvent(QEvent *event)
 		reposition();
 }
 
-void DockToast::reposition()
+int DockToast::needed_height(int area_width)
 {
-	if (area_.isEmpty())
-		return;
+	const int width = std::min(area_width - 4, kMaxWidth + 2 * kShadowSide);
+	return height_for(width);
+}
+
+int DockToast::height_for(int width)
+{
 	// The card's padding, with room on the left for the badge.
 	const QFontMetrics metrics(scaled_font(font(), 1.0, QFont::DemiBold));
 	const int badge_room = qRound(metrics.height() * kBadge) + 10;
 	layout()->setContentsMargins(kShadowSide + kPaddingX + badge_room, kShadowTop + kPaddingY,
 				     kShadowSide + kPaddingX - 4, kShadowBottom + kPaddingY);
+	return layout()->hasHeightForWidth() ? layout()->totalHeightForWidth(width)
+					     : layout()->totalSizeHint().height();
+}
+
+void DockToast::reposition()
+{
+	if (area_.isEmpty())
+		return;
 	const int width = std::min(area_.width() - 4, kMaxWidth + 2 * kShadowSide);
-	const int height = layout()->hasHeightForWidth() ? layout()->totalHeightForWidth(width)
-							 : layout()->totalSizeHint().height();
+	const int height = height_for(width);
 	const int left = area_.left() + (area_.width() - width) / 2;
 	const int top = area_.bottom() + 1 - height;
 	setGeometry(left, top, std::max(0, width), height);
