@@ -2,17 +2,14 @@
 // holds and how dismissing works.
 #include "banner-area.hpp"
 
+#include "dock-controls.hpp"
+
 #include <obs-module.h>
 
-#include <QChar>
-#include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
-#include <QSize>
 #include <QSizePolicy>
-#include <QStyle>
-#include <QToolButton>
 #include <QVBoxLayout>
 
 #include <utility>
@@ -20,9 +17,6 @@
 namespace clip_atlas {
 
 namespace {
-
-// The dock spec asks for 16 px. The pixmap is made for the window's device pixel ratio, so it stays sharp on HiDPI.
-constexpr int kIconSize = 16;
 
 QString module_text(const char *key)
 {
@@ -86,15 +80,12 @@ bool BannerArea::is_shown(BannerId id) const
 
 QWidget *BannerArea::make_row(BannerId id, const Banner &banner)
 {
-	auto *row = new QFrame(this);
-	row->setFrameShape(QFrame::StyledPanel);
+	auto *row = new NoticeFrame(banner.kind == BannerKind::warning ? NoticeTone::warning : NoticeTone::information,
+				    this);
 	auto *line = new QHBoxLayout(row);
-
-	const QStyle::StandardPixmap standard_icon =
-		banner.kind == BannerKind::warning ? QStyle::SP_MessageBoxWarning : QStyle::SP_MessageBoxInformation;
-	auto *icon = new QLabel(row);
-	icon->setPixmap(style()->standardIcon(standard_icon).pixmap(QSize(kIconSize, kIconSize), devicePixelRatioF()));
-	line->addWidget(icon);
+	// The frame paints its icon in the left margin.
+	line->setContentsMargins(row->icon_room(), 7, 6, 7);
+	line->setSpacing(8);
 
 	auto *message = new QLabel(banner.text, row);
 	// The text is never rich text: a path or a name in it must show as typed.
@@ -106,18 +97,13 @@ QWidget *BannerArea::make_row(BannerId id, const Banner &banner)
 	if (!banner.action_text.isEmpty()) {
 		auto *action_button = new QPushButton(banner.action_text, row);
 		connect(action_button, &QPushButton::clicked, this, [this, id] { run_action(id); });
-		line->addWidget(action_button);
+		line->addWidget(action_button, 0, Qt::AlignVCenter);
 	}
 
 	if (banner.dismissible) {
-		// The glyph alone says nothing to a screen reader, so the button gets the tooltip text as its name too.
-		auto *dismiss_button = new QToolButton(row);
-		dismiss_button->setText(QString(QChar(0x2715))); // U+2715 MULTIPLICATION X
-		dismiss_button->setAutoRaise(true);
-		dismiss_button->setToolTip(module_text("Dock.Banner.Dismiss"));
-		dismiss_button->setAccessibleName(module_text("Dock.Banner.Dismiss"));
-		connect(dismiss_button, &QToolButton::clicked, this, [this, id] { dismiss(id); });
-		line->addWidget(dismiss_button);
+		auto *dismiss_button = new GhostButton(DockIcon::clear, module_text("Dock.Banner.Dismiss"), row);
+		connect(dismiss_button, &QAbstractButton::clicked, this, [this, id] { dismiss(id); });
+		line->addWidget(dismiss_button, 0, Qt::AlignTop);
 	}
 	return row;
 }

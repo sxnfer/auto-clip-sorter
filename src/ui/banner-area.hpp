@@ -1,11 +1,9 @@
 // Clip Atlas — notices at the top of the dock for problems the user can fix.
 //
-// Each banner is a row: a standard icon (style()->standardIcon(
-// QStyle::SP_MessageBoxWarning) for warnings, SP_MessageBoxInformation for
-// information, 16 px), a word-wrapped QLabel with the text, an optional
-// QPushButton with the action text, and for dismissible banners a flat "✕"
-// QToolButton (tooltip Dock.Banner.Dismiss). The row is a QFrame with
-// QFrame::StyledPanel, so the OBS theme draws it; no colours are set.
+// Each banner is a NoticeFrame (dock-controls.hpp): a rounded fill in the theme's notice colour with a tone icon (the
+// theme's warning colour for warnings, the accent for information), a word-wrapped QLabel with the text, an optional
+// QPushButton with the action text, and for dismissible banners a GhostButton with the clear icon (tooltip and
+// accessible name Dock.Banner.Dismiss). No style sheet is set.
 // Banners are stacked in BannerId order, whatever order they were shown in.
 // The area is hidden when no banner is shown, so it takes no space.
 //
