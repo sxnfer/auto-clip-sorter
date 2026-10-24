@@ -88,7 +88,8 @@ void StatusHeader::set_replay_status(ReplayBufferStatus status)
 {
 	replay_status_ = status;
 	update_pill();
-	save_->setEnabled(replay_running(status));
+	// The status's width decides whether Save replay keeps its text.
+	update_save_button();
 }
 
 void StatusHeader::set_replay_auto_start(bool on)
@@ -237,7 +238,8 @@ void StatusHeader::update_save_button()
 	int beside = 0; // what shares the button's row
 	switch (layout_) {
 	case Layout::column:
-		beside = pill_->minimumSizeHint().width() + 8;
+		// The pill keeps room for its status; the detail can go.
+		beside = pill_->status_width() + 8;
 		break;
 	case Layout::rail:
 		beside = auto_sort_->sizeHint().width() + 8;

@@ -8,6 +8,7 @@
 #include <QEvent>
 #include <QFontMetrics>
 #include <QFontMetricsF>
+#include <QtMath>
 #include <QKeyEvent>
 #include <QLayout>
 #include <QMenu>
@@ -71,6 +72,19 @@ int font_height(const QWidget *widget)
 	return QFontMetrics(widget->font()).height();
 }
 
+// The width `text` needs in `font`, rounded up. QFontMetrics::horizontalAdvance() rounds to whole pixels, and
+// elidedText() measures more finely, so a control sized by the rounded width could elide its own label.
+int text_width(const QFont &font, const QString &text)
+{
+	return qCeil(QFontMetricsF(font).horizontalAdvance(text)) + 1;
+}
+
+// " · " between a status and its detail. U+00B7 MIDDLE DOT as a code point, so the source stays plain ASCII.
+QString detail_separator()
+{
+	return QStringLiteral(" ") + QChar(0x00B7) + QStringLiteral(" ");
+}
+
 // The colour of a control's label: the palette's text, or the muted grey while it is disabled.
 QColor label_color(const QWidget *widget, QPalette::ColorRole role = QPalette::Text)
 {
@@ -81,6 +95,9 @@ bool under_mouse(const QWidget *widget)
 {
 	return widget->isEnabled() && widget->testAttribute(Qt::WA_UnderMouse);
 }
+
+// Every size hint starts with ensurePolished(): the style sheet's font arrives with polishing, and a control measured
+// before it would be laid out for the wrong font. A layout can ask before the control is first shown.
 
 // The roles every control repaints for, and the font change after which its size is asked for again.
 void handle_look_change(QWidget *widget, QEvent *event)
@@ -135,16 +152,18 @@ void ChipButton::set_count(int count)
 
 QSize ChipButton::sizeHint() const
 {
+	ensurePolished();
 	const QFontMetrics metrics(font());
-	const QFontMetrics count_metrics(scaled_font(font(), kCountScale));
-	int width = 2 * qRound(metrics.height() * kChipPadding) + metrics.horizontalAdvance(text());
+	int width = 2 * qRound(metrics.height() * kChipPadding) + text_width(font(), text());
 	if (count_ >= 0)
-		width += qRound(metrics.height() * kChipGap) + count_metrics.horizontalAdvance(QString::number(count_));
+		width += qRound(metrics.height() * kChipGap) +
+			 text_width(scaled_font(font(), kCountScale), QString::number(count_));
 	return QSize(width, qRound(metrics.height() * kChipHeight));
 }
 
 QSize ChipButton::minimumSizeHint() const
 {
+	ensurePolished();
 	const int height = qRound(font_height(this) * kChipHeight);
 	return QSize(height * 2, height);
 }
@@ -173,11 +192,10 @@ void ChipButton::paintEvent(QPaintEvent *)
 
 	const QFontMetrics metrics(font());
 	const QFont count_font = scaled_font(font(), kCountScale);
-	const QFontMetrics count_metrics(count_font);
 	const int padding = qRound(metrics.height() * kChipPadding);
 	const QString count = count_ >= 0 ? QString::number(count_) : QString();
-	const int count_room =
-		count.isEmpty() ? 0 : qRound(metrics.height() * kChipGap) + count_metrics.horizontalAdvance(count);
+	const int count_room = count.isEmpty() ? 0
+					       : qRound(metrics.height() * kChipGap) + text_width(count_font, count);
 	const QRect text_box = rect().adjusted(padding, 0, -padding, 0);
 	const QString label = metrics.elidedText(text(), Qt::ElideRight, std::max(0, text_box.width() - count_room));
 
@@ -286,12 +304,14 @@ bool ChipBar::hasHeightForWidth() const
 
 int ChipBar::heightForWidth(int width) const
 {
+	ensurePolished();
 	const int rows = chips_.empty() ? 1 : place(width).rows;
 	return rows * chip_height() + (rows - 1) * spacing();
 }
 
 QSize ChipBar::sizeHint() const
 {
+	ensurePolished();
 	// Every chip on one line, up to a width that would make the bar crowd out the search field in the bottom row.
 	int width = 0;
 	for (const ChipButton *chip : chips_)
@@ -302,8 +322,20 @@ QSize ChipBar::sizeHint() const
 
 QSize ChipBar::minimumSizeHint() const
 {
+	ensurePolished();
 	// Narrower than any chip: a long game name is elided rather than widening the dock.
 	return QSize(chip_height() * 3, chip_height());
+}
+
+bool ChipBar::event(QEvent *event)
+{
+	// A chip asks for a new size when its font or text changes, and the bar places the chips itself.
+	if (event->type() == QEvent::LayoutRequest) {
+		updateGeometry();
+		relayout();
+		return true;
+	}
+	return QWidget::event(event);
 }
 
 void ChipBar::resizeEvent(QResizeEvent *event)
@@ -359,7 +391,7 @@ int ChipBar::more_width(int hidden) const
 {
 	const QFontMetrics metrics(font());
 	return 2 * qRound(metrics.height() * kChipPadding) +
-	       metrics.horizontalAdvance(module_text("Dock.Filter.More").arg(hidden));
+	       text_width(font(), module_text("Dock.Filter.More").arg(hidden));
 }
 
 ChipBar::Placement ChipBar::place_in_order(int width, const std::vector<int> &order) const
@@ -520,12 +552,14 @@ void SegmentButton::set_compact(bool compact)
 
 int SegmentButton::full_width() const
 {
+	ensurePolished();
 	const QFontMetrics metrics(font());
-	return 2 * qRound(metrics.height() * kSegmentPadding) + metrics.horizontalAdvance(text());
+	return 2 * qRound(metrics.height() * kSegmentPadding) + text_width(font(), text());
 }
 
 int SegmentButton::compact_width() const
 {
+	ensurePolished();
 	if (!has_icon_)
 		return full_width();
 	const QFontMetrics metrics(font());
@@ -534,6 +568,7 @@ int SegmentButton::compact_width() const
 
 QSize SegmentButton::sizeHint() const
 {
+	ensurePolished();
 	return QSize(full_width(), qRound(font_height(this) * kTrackHeight - 2 * kTrackInset));
 }
 
@@ -616,6 +651,7 @@ void SegmentBar::set_chosen_callback(Chosen callback)
 
 QSize SegmentBar::sizeHint() const
 {
+	ensurePolished();
 	int width = 0;
 	for (const SegmentButton *segment : segments_)
 		width += segment->full_width();
@@ -624,6 +660,7 @@ QSize SegmentBar::sizeHint() const
 
 QSize SegmentBar::minimumSizeHint() const
 {
+	ensurePolished();
 	int width = 0;
 	for (const SegmentButton *segment : segments_)
 		width += segment->compact_width();
@@ -751,12 +788,13 @@ ToggleSwitch::ToggleSwitch(const QString &text, QWidget *parent) : QAbstractButt
 
 QSize ToggleSwitch::sizeHint() const
 {
+	ensurePolished();
 	const QFontMetrics metrics(font());
 	const int track_height = qRound(metrics.height() * kSwitchHeight);
 	const int track_width = qRound(track_height * kSwitchAspect);
 	int width = track_width + 4; // the focus ring's room
 	if (!text().isEmpty())
-		width += metrics.horizontalAdvance(text()) + qRound(metrics.height() * kSwitchGap);
+		width += text_width(font(), text()) + qRound(metrics.height() * kSwitchGap);
 	return QSize(width, std::max(metrics.height(), track_height) + 4);
 }
 
@@ -837,6 +875,7 @@ void GameAvatar::set_game(const QString &name)
 
 QSize GameAvatar::sizeHint() const
 {
+	ensurePolished();
 	const int side = qRound(font_height(this) * kAvatarSide);
 	return QSize(side, side);
 }
@@ -903,10 +942,10 @@ void GameTitle::set_texts(const QString &eyebrow, const QString &title, bool dim
 
 QSize GameTitle::sizeHint() const
 {
+	ensurePolished();
 	const QFontMetrics eyebrow_metrics(eyebrow_font());
 	const QFontMetrics title_metrics(title_font());
-	const int width =
-		std::max(eyebrow_metrics.horizontalAdvance(eyebrow_), title_metrics.horizontalAdvance(title_));
+	const int width = std::max(text_width(eyebrow_font(), eyebrow_), text_width(title_font(), title_));
 	return QSize(width, eyebrow_metrics.height() + title_metrics.height());
 }
 
@@ -987,18 +1026,30 @@ void StatusPill::set_status(const QColor &dot, const QString &text, const QStrin
 
 QSize StatusPill::sizeHint() const
 {
+	ensurePolished();
 	const QFontMetrics base(font());
-	const QFontMetrics metrics(scaled_font(font(), kSmallScale));
+	const QFont small = scaled_font(font(), kSmallScale);
 	const int padding = qRound(base.height() * 0.6);
 	const int dot_room = qRound(base.height() * 0.42) + qRound(base.height() * 0.4);
-	int width = 2 * padding + dot_room + metrics.horizontalAdvance(text_);
+	int width = 2 * padding + dot_room + text_width(small, text_);
 	if (!detail_.isEmpty())
-		width += metrics.horizontalAdvance(QStringLiteral(" · ") + detail_);
+		width += text_width(small, detail_separator() + detail_);
 	return QSize(width, qRound(base.height() * kPillHeight));
+}
+
+int StatusPill::status_width() const
+{
+	ensurePolished();
+	const QFontMetrics base(font());
+	const QFont small = scaled_font(font(), kSmallScale);
+	const int padding = qRound(base.height() * 0.6);
+	const int dot_room = qRound(base.height() * 0.42) + qRound(base.height() * 0.4);
+	return 2 * padding + dot_room + text_width(small, text_);
 }
 
 QSize StatusPill::minimumSizeHint() const
 {
+	ensurePolished();
 	const QFontMetrics base(font());
 	return QSize(qRound(base.height() * 4.0), qRound(base.height() * kPillHeight));
 }
@@ -1028,7 +1079,7 @@ void StatusPill::paintEvent(QPaintEvent *)
 
 	const int text_left = padding + qRound(dot) + qRound(base.height() * 0.4);
 	const int room = std::max(0, qRound(pill.right()) - padding - text_left);
-	const QString separated = QStringLiteral(" · ") + detail_;
+	const QString separated = detail_separator() + detail_;
 	const bool detail_fits = !detail_.isEmpty() &&
 				 metrics.horizontalAdvance(text_) + metrics.horizontalAdvance(separated) <= room;
 	const QRect text_box(text_left, 0, room, height());
@@ -1066,6 +1117,7 @@ void NoticeFrame::set_tone(NoticeTone tone)
 
 int NoticeFrame::icon_room() const
 {
+	ensurePolished();
 	const int height = font_height(this);
 	return qRound(height * 0.65) + height + qRound(height * 0.5);
 }
@@ -1147,12 +1199,13 @@ void GhostButton::set_icon(DockIcon icon)
 
 QSize GhostButton::sizeHint() const
 {
+	ensurePolished();
 	const QFontMetrics metrics(font());
 	const int side = qRound(metrics.height() * kGhostSide);
 	if (has_icon_)
 		return QSize(side, side);
-	const QFontMetrics bold(scaled_font(font(), 1.0, QFont::DemiBold));
-	return QSize(bold.horizontalAdvance(text()) + 2 * qRound(metrics.height() * 0.5), side);
+	return QSize(text_width(scaled_font(font(), 1.0, QFont::DemiBold), text()) + 2 * qRound(metrics.height() * 0.5),
+		     side);
 }
 
 QSize GhostButton::minimumSizeHint() const
@@ -1263,6 +1316,7 @@ bool TextBlock::hasHeightForWidth() const
 
 int TextBlock::heightForWidth(int width) const
 {
+	ensurePolished();
 	const QFontMetrics metrics(text_font());
 	if (!wrap_ || text_.isEmpty())
 		return metrics.height();
@@ -1272,8 +1326,9 @@ int TextBlock::heightForWidth(int width) const
 
 QSize TextBlock::sizeHint() const
 {
+	ensurePolished();
 	const QFontMetrics metrics(text_font());
-	const int width = metrics.horizontalAdvance(text_);
+	const int width = text_width(text_font(), text_);
 	if (!wrap_)
 		return QSize(width, metrics.height());
 	// A wrapped block asks for a comfortable line length; the layout's width decides the rest.
@@ -1283,11 +1338,12 @@ QSize TextBlock::sizeHint() const
 
 QSize TextBlock::minimumSizeHint() const
 {
+	ensurePolished();
 	const QFontMetrics metrics(text_font());
 	if (wrap_)
 		return QSize(metrics.averageCharWidth() * 6, metrics.height());
 	if (elide_ == Qt::ElideNone)
-		return QSize(metrics.horizontalAdvance(text_), metrics.height());
+		return QSize(text_width(text_font(), text_), metrics.height());
 	return QSize(0, metrics.height());
 }
 
@@ -1364,12 +1420,14 @@ void EmptyState::set_texts(DockIcon icon, const QString &title, const QString &b
 
 QSize EmptyState::sizeHint() const
 {
+	ensurePolished();
 	const int height = font_height(this);
 	return QSize(height * 14, height * 9);
 }
 
 QSize EmptyState::minimumSizeHint() const
 {
+	ensurePolished();
 	const int height = font_height(this);
 	return QSize(height * 6, height * 4);
 }

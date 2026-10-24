@@ -440,13 +440,14 @@ void on_clip_sorted(const ClipSorted &clip)
 	}
 }
 
-// Plugin-level frontend callback, registered by obs_module_load() and never removed. It handles two events:
+// Plugin-level frontend callback, registered by obs_module_load() and never removed. It handles these events:
 //   - OBS_FRONTEND_EVENT_FINISHED_LOADING: OBS has created its outputs and scene collection, so the Replay Buffer
 //     controller starts here. Module load is too early, because the controller asks OBS for the replay buffer output.
 //     The clip browser starts here too, because OBS's recording folder can only be read now. So do the update check
 //     and the hotkey, which reads its binding from the profile.
 //   - OBS_FRONTEND_EVENT_PROFILE_CHANGED: the clip browser checks whether its folder or replay prefix changed, and the
 //     hotkey loads the new profile's binding.
+//   - OBS_FRONTEND_EVENT_THEME_CHANGED: the clip browser repaints its colours and icons from the new theme.
 //   - OBS_FRONTEND_EVENT_EXIT: OBS is shutting down. The plugin stops here. Objects are destroyed later, in
 //     obs_module_unload().
 // Its private data is nullptr, which stays valid for the life of the process.
@@ -511,6 +512,10 @@ void on_plugin_frontend_event(obs_frontend_event event, void *)
 			} catch (...) {
 				obs_log(LOG_ERROR, "toggle hotkey profile update failed: unknown exception");
 			}
+		} else if (event == OBS_FRONTEND_EVENT_THEME_CHANGED) {
+			// The dock catches and logs its own failures.
+			if (!g_stopped && g_dock)
+				g_dock->on_theme_changed();
 		} else if (event == OBS_FRONTEND_EVENT_EXIT) {
 			g_exit_seen = true;
 			stop_all();

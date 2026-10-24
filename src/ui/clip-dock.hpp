@@ -1,17 +1,34 @@
 // Clip Atlas — the clip browser dock (Docks → Clip Atlas).
 //
-// Layout and behaviour: docs/handover/M3-dock-spec.md. Widget tree, top to
-// bottom, in one QVBoxLayout:
-//   StatusHeader
-//   BannerArea
-//   filter row: QComboBox (game filter) + QLineEdit (search, clear button on)
-//   QListView (ClipListModel + ClipListDelegate; single selection, uniform
-//     row sizes, per-pixel scrolling) or, when there is nothing to show, a
-//     centred word-wrapped QLabel (Dock.Empty.NoClips with no clips at all,
-//     Dock.Empty.NoMatch when the filter hides every clip); a QStackedWidget
-//     switches between them
-//   footer: QPushButton Dock.OpenFolder, stretch, QToolButton Refresh
-//     (tooltip Dock.Refresh), QToolButton ⚙ (tooltip Dock.Settings)
+// Layout and behaviour: docs/handover/M6-dock-spec.md, which amends
+// docs/handover/M3-dock-spec.md. The same widgets are arranged three ways,
+// by choose_dock_layout() on the dock's size; resizeEvent queues the change,
+// and the layout is rebuilt outside it:
+//   column (a side dock):  StatusHeader (column), BannerArea, the search
+//     QLineEdit, ChipBar (2 rows), SegmentBar, the list, a hairline, the footer.
+//   row (the short bottom row): a rail on the left with StatusHeader (rail)
+//     and the footer; on the right BannerArea, ChipBar (1 row) beside the
+//     search field, and the list as a sideways strip of cards (no headers).
+//     The type filter is hidden and reset to All, so no hidden filter is left on.
+//   wide (a large, usually floating window): StatusHeader (wide) across the
+//     top; the filters and the list on the left; ClipPreview of the current
+//     clip on the right (entering it selects the first clip when none is);
+//     the footer across the bottom.
+// The list is a ClipListView over a ClipListModel; when there is nothing to
+// show, a QStackedWidget swaps it for an EmptyState (Dock.Empty.Title and
+// .Body with no clips at all, Dock.Empty.NoMatch and .NoMatchHint when the
+// filter hides every clip). The footer has the summary (Dock.Summary of the
+// index's clip count and size, or Dock.Footer.Truncated when the last scan
+// hit the cap) and GhostButtons for Dock.OpenFolder, Dock.Refresh and
+// Dock.Settings. A DockToast floats over the bottom of the list (the rail in
+// the row layout).
+//
+// Filters: the chips are Dock.Filter.All with the index's clip count, each
+// ClipIndex::games() entry with its count, then Dock.Game.Unfiled when
+// has_unfiled(); the choice is kept while its chip exists, otherwise All. The
+// segments set ClipQuery::kind (Dock.Kind.All, .Replays, .Recordings,
+// .Screenshots). The search sets ClipQuery::search. Ctrl+F focuses the search;
+// Escape there clears it, or goes to the list when it is empty.
 //
 // Scanning (on the dock's own TaskQueue, never on the UI thread):
 //   - base = path_from_utf8(SettingsStore::effective_clips_folder()), read on
@@ -36,18 +53,25 @@
 // Filing: on_clip_sorted() with status moved or copied_source_kept queues
 // describe_clip(base, final_path) on the queue; the entry hops back and is
 // upserted with its kind set to clip.kind (the exact type, not the prefix
-// guess). Other statuses change nothing.
+// guess), marked fresh (ClipListModel::set_fresh()), and the toast says
+// Dock.Toast.Filed (moved) or Dock.Toast.Copied (copied_source_kept) with the
+// folders below the base (folders_below(), joined by " › "), and the clip's
+// title and size; Show reveals it. Status failed shows Dock.Toast.Failed with
+// the reason; Show reveals the original. Cancelled changes nothing.
 //
 // Status: on_game_changed() shows clip_game_for(state.current(),
-// settings).name. on_replay_status() updates the pill and the
-// replay_buffer_disabled banner: shown while the status is disabled_in_obs and
-// settings.replay_auto_start is on (Dock.Banner.ReplayDisabled), hidden
-// otherwise. The auto-sort switch shows settings.auto_sort and, when clicked,
-// stores the settings with auto_sort changed (SettingsStore::set; the dock is
-// updated again through apply_settings()).
+// settings).name. on_replay_status() updates the pill and Save replay, and
+// the replay_buffer_disabled banner: shown while the status is
+// disabled_in_obs and settings.replay_auto_start is on
+// (Dock.Banner.ReplayDisabled), hidden otherwise. The auto-sort switch shows
+// settings.auto_sort and, when clicked, stores the settings with auto_sort
+// changed (SettingsStore::set; the dock is updated again through
+// apply_settings()). Save replay calls obs_frontend_replay_buffer_save()
+// when obs_frontend_replay_buffer_active().
 //
-// Clip actions (right-click menu on a row, in this order; double-click and
-// Enter open; Delete recycles; F2 renames):
+// Clip actions (right-click menu on a row or card, and the More action, in
+// this order; double-click and Enter open; Delete recycles; F2 renames; the
+// hover actions open and reveal; the preview's buttons do each):
 //   Dock.Action.Open        shell_ops().open(path)
 //   Dock.Action.Reveal      shell_ops().reveal(path)
 //   ─────
@@ -78,21 +102,22 @@
 // dock and logged at WARNING; nothing else changes. Results that arrive after
 // stop() are dropped.
 //
-// Footer: Dock.OpenFolder → shell_ops().open_folder(base) (disabled while base
-// is empty); Refresh → a new scan; ⚙ → open_settings_dialog(store,
-// main window).
+// Days: a QTimer calls ClipListModel::refresh_day() every 60 s while the dock
+// is visible, so the groups follow midnight.
 //
-// Ages: a QTimer calls ClipListModel::refresh_ages() every 60 s while the dock
-// is visible.
+// Theme: on_theme_changed() (OBS_FRONTEND_EVENT_THEME_CHANGED) and the dock's
+// own palette and style changes forget the cached theme accents, redraw the
+// icons and repaint every child.
 //
 // Lifetime: OBS owns the widget once register_clip_dock() has added it, and
 // deletes it with the main window, after OBS_FRONTEND_EVENT_EXIT and before
 // obs_module_unload() (OBS 31: OBSBasic owns extraDocks; the main window is
 // deleted on close, before obs_shutdown() unloads modules). stop() runs at
-// EXIT (stop_all()): it shuts the queue down, stops the timer and the model,
-// and makes every public function do nothing. The destructor calls stop() and
-// touches nothing outside the widget. GameState, SettingsStore and FileMover
-// outlive the dock (destroyed in obs_module_unload()).
+// EXIT (stop_all()): it shuts the queue down, stops the timer, the model, the
+// preview and the toast, and makes every public function do nothing. The
+// destructor calls stop() and touches nothing outside the widget. GameState,
+// SettingsStore and FileMover outlive the dock (destroyed in
+// obs_module_unload()).
 //
 // UI thread only.
 #pragma once
@@ -131,6 +156,8 @@ public:
 	void on_game_changed();
 	void on_replay_status(ReplayBufferStatus status);
 	void on_clip_sorted(const ClipSorted &clip);
+	// OBS_FRONTEND_EVENT_THEME_CHANGED.
+	void on_theme_changed();
 
 	// For the update banner (M5). nullptr after stop().
 	BannerArea *banners();
@@ -138,6 +165,10 @@ public:
 protected:
 	void showEvent(QShowEvent *event) override;
 	void hideEvent(QHideEvent *event) override;
+	// Queues a layout change when the size calls for one, and moves the toast.
+	void resizeEvent(QResizeEvent *event) override;
+	// A palette or style change can be a theme change that OBS doesn't announce.
+	void changeEvent(QEvent *event) override;
 
 private:
 	struct Impl;

@@ -14,6 +14,7 @@
 #include <QImage>
 #include <QLocale>
 #include <QPointer>
+#include <QRegularExpression>
 #include <QTime>
 #include <QVariantAnimation>
 
@@ -57,9 +58,14 @@ QDateTime to_date_time(std::chrono::system_clock::time_point t)
 	return QDateTime::fromMSecsSinceEpoch(static_cast<qint64>(ms));
 }
 
+// The locale's short time without the seconds: "21:46" or "9:46 PM". Some locales' short format has seconds, and a
+// list of times to the second is noise.
 QString time_of_day(const QDateTime &t)
 {
-	return QLocale::system().toString(t.time(), QLocale::ShortFormat);
+	static const QRegularExpression seconds(QStringLiteral("[:.]?s{1,2}"));
+	QString format = QLocale::system().timeFormat(QLocale::ShortFormat);
+	format.remove(seconds);
+	return QLocale::system().toString(t.time(), format.trimmed());
 }
 
 QString short_weekday(const QDateTime &t)

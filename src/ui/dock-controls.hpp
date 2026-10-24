@@ -76,6 +76,7 @@ public:
 	QSize minimumSizeHint() const override;
 
 protected:
+	bool event(QEvent *event) override;
 	void resizeEvent(QResizeEvent *event) override;
 	void changeEvent(QEvent *event) override;
 	// Left and Right move the focus between the chips shown, so the bar is one Tab stop however many games it has.
@@ -243,6 +244,8 @@ public:
 	explicit StatusPill(QWidget *parent = nullptr);
 
 	void set_status(const QColor &dot, const QString &text, const QString &detail);
+	// The width that shows the status without the detail.
+	int status_width() const;
 
 	QSize sizeHint() const override;
 	QSize minimumSizeHint() const override;

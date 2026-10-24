@@ -367,16 +367,19 @@ void ClipListDelegate::paint_row(QPainter *painter, const QStyleOptionViewItem &
 	}
 
 	// The title, then New for the fresh clip.
-	const bool fresh = index.data(ClipListModel::FreshRole).toBool();
-	const QString tag = fresh ? module_text("Dock.New") : QString();
-	const QSizeF tag_box = fresh ? tag_size(option.font, tag) : QSizeF();
-	const int tag_room = fresh ? qRound(tag_box.width()) + 8 : 0;
-	const QString title = metrics.elidedText(index.data(Qt::DisplayRole).toString(), Qt::ElideRight,
-						 std::max(0, title_room - tag_room));
+	// New goes when the title would have to be cut for it: the flash and the toast have said it already.
+	const QString full_title = index.data(Qt::DisplayRole).toString();
+	const QString tag = module_text("Dock.New");
+	const QSizeF tag_box = tag_size(option.font, tag);
+	const int tag_room = qRound(tag_box.width()) + 8;
+	const bool fresh = index.data(ClipListModel::FreshRole).toBool() &&
+			   metrics.horizontalAdvance(full_title) + tag_room <= title_room;
+	const QString title =
+		metrics.elidedText(full_title, Qt::ElideRight, std::max(0, title_room - (fresh ? tag_room : 0)));
 	painter->setFont(option.font);
 	painter->setPen(palette.color(QPalette::Text));
 	painter->drawText(title_line, Qt::AlignLeft | Qt::AlignVCenter | Qt::TextSingleLine, title);
-	if (fresh && title_room >= tag_room) {
+	if (fresh) {
 		const qreal left = text_left + metrics.horizontalAdvance(title) + 8;
 		const QRectF box(left, title_line.center().y() + 0.5 - tag_box.height() / 2.0, tag_box.width(),
 				 tag_box.height());
