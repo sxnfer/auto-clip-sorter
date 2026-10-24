@@ -42,9 +42,11 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "ui-thread.hpp"
 #include "update-checker.hpp"
 
+#include <QDesktopServices>
 #include <QMessageBox>
 #include <QPointer>
 #include <QString>
+#include <QUrl>
 #include <QWidget>
 
 #include <algorithm>
@@ -208,13 +210,13 @@ void open_settings_from_menu(void *)
 }
 
 // Opens a release's download page in the browser. `url` is UpdateResult::download_url, which update-policy has already
-// checked: a release page, or the releases list. The shell's answer is only logged.
+// checked: a release page, or the releases list. Not through shell-ops: its open() takes absolute file paths only and
+// refuses a URL.
 void open_download_page(const std::string &url)
 {
-	shell_ops().open(url, [](const std::string &error) {
-		if (!error.empty())
-			obs_log(LOG_WARNING, "could not open the download page: %s", error.c_str());
-	});
+	const QUrl page(QString::fromStdString(url), QUrl::StrictMode);
+	if (!page.isValid() || !QDesktopServices::openUrl(page))
+		obs_log(LOG_WARNING, "could not open the download page: %s", url.c_str());
 }
 
 // A newer release was found: by the automatic check, or by the user choosing Download in the manual check. Shows the
