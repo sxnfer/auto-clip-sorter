@@ -19,7 +19,7 @@
 //
 // Thumbnails: data(row, Qt::DecorationRole) returns the cached QPixmap, or a
 // null QPixmap while none is cached. A miss calls
-// thumbnail_provider().request(path, kThumbRequestPx, ...) once per path (a
+// thumbnail_provider().request(path, picture_px(), ...) once per path (a
 // set of pending paths), and the answer hops to the UI thread with
 // run_on_ui(), guarded by a QPointer to the model:
 //   ok      → QImage(bgra, w, h, w*4, Format_ARGB32_Premultiplied).copy() →
@@ -28,7 +28,9 @@
 //   failed  → remembered (no retry until the clip changes); the placeholder stays.
 //   dropped → forgotten, so the next paint asks again.
 // The cache key is the path, so a renamed or replaced clip (upsert with a
-// different size or modified time) drops its cached image.
+// different size or modified time) drops its cached image. The cards of the
+// bottom row ask for kCardPicturePx (set_picture_px()); a cached picture made
+// for the list stands in, and a larger one is asked for once.
 //
 // UI thread only.
 #pragma once
@@ -68,8 +70,9 @@ QString summary_text(std::size_t count, std::uintmax_t bytes);
 
 class ClipListModel : public QAbstractListModel {
 public:
-	static constexpr int kThumbRequestPx = 256; // a list picture at 3x, or a card at 1x
-	static constexpr std::size_t kThumbCacheSize = 240;
+	static constexpr int kThumbRequestPx = 256; // a list picture at 3x
+	static constexpr int kCardPicturePx = 400;  // a bottom-row card at 1.5x
+	static constexpr std::size_t kThumbCacheSize = 200;
 
 	enum Role {
 		// QString: UTF-8 path as text (QString::fromStdString(path_to_utf8())).
@@ -128,6 +131,9 @@ public:
 	// The clips listed, headers not counted.
 	std::size_t clip_count() const;
 
+	// The size pictures are asked for: kThumbRequestPx for rows, kCardPicturePx for cards.
+	void set_picture_px(int px);
+
 	// Marks the clip at `path` fresh (Dock.New) and flashes its row. One clip at a time.
 	void set_fresh(const std::filesystem::path &path);
 	// The groups and the times depend on today's date: regroups (a reset) when it has changed since the rows were
@@ -185,7 +191,10 @@ private:
 	// forgotten or replaced can't be mistaken for the current one.
 	mutable std::map<std::string, std::uint64_t> pending_;
 	mutable std::set<std::string> failed_;
+	// Path -> the largest size asked for, so a picture that comes back smaller than asked isn't asked for again.
+	mutable std::map<std::string, int> asked_px_;
 	mutable std::uint64_t next_ticket_ = 0;
+	int picture_px_ = kThumbRequestPx;
 	bool stopped_ = false;
 };
 

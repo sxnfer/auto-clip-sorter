@@ -206,6 +206,7 @@ void ClipListModel::reset_clips(std::vector<ClipEntry> clips)
 	}
 	failed_.clear();
 	pending_.clear();
+	asked_px_.clear();
 	index_.reset(std::move(clips));
 	rebuild_rows();
 	endResetModel();
@@ -307,6 +308,11 @@ void ClipListModel::set_fresh(const std::filesystem::path &path)
 	flash_->start();
 }
 
+void ClipListModel::set_picture_px(int px)
+{
+	picture_px_ = std::max(16, px);
+}
+
 bool ClipListModel::refresh_day()
 {
 	if (local_date_of(std::chrono::system_clock::now()) == today_)
@@ -389,8 +395,16 @@ QVariant ClipListModel::clip_data(const Row &row, int role) const
 	}
 	case Qt::DecorationRole: {
 		const std::string key = path_to_utf8(clip.path);
-		if (QPixmap *picture = thumbnails_.get(key))
+		if (QPixmap *picture = thumbnails_.get(key)) {
+			// A picture made for the list is too small for a card. It stands in while a larger one is
+			// asked for, once.
+			const int longest = std::max(picture->width(), picture->height());
+			const auto asked = asked_px_.find(key);
+			const bool asked_enough = asked != asked_px_.end() && asked->second >= picture_px_;
+			if (longest < picture_px_ * 9 / 10 && !asked_enough && !stopped_ && pending_.count(key) == 0)
+				request_thumbnail(key);
 			return *picture;
+		}
 		// A miss asks once: the path stays pending until the answer comes. A failed clip
 		// is not asked again until it changes, so scrolling past it doesn't ask the Shell.
 		if (!stopped_ && pending_.count(key) == 0 && failed_.count(key) == 0)
@@ -457,6 +471,8 @@ void ClipListModel::request_thumbnail(const std::string &path_utf8) const
 {
 	const std::uint64_t ticket = ++next_ticket_;
 	pending_[path_utf8] = ticket;
+	int &asked = asked_px_[path_utf8];
+	asked = std::max(asked, picture_px_);
 	// The answer arrives on the provider's thread and is queued to the UI thread, where the QPointer
 	// tells whether the model still exists: a dock closed while a request was out must not be touched.
 	QPointer<ClipListModel> self(const_cast<ClipListModel *>(this));
@@ -468,7 +484,7 @@ void ClipListModel::request_thumbnail(const std::string &path_utf8) const
 				self->on_thumbnail(path, ticket, status, *picture);
 		});
 	};
-	thumbnail_provider().request(path_utf8, kThumbRequestPx, std::move(answered));
+	thumbnail_provider().request(path_utf8, picture_px_, std::move(answered));
 }
 
 void ClipListModel::on_thumbnail(const std::string &path_utf8, std::uint64_t ticket, ThumbnailStatus status,
@@ -501,7 +517,8 @@ void ClipListModel::on_thumbnail(const std::string &path_utf8, std::uint64_t tic
 		failed_.insert(path_utf8);
 		return;
 	case ThumbnailStatus::dropped:
-		// The next paint asks again.
+		// The next paint asks again, a larger picture included.
+		asked_px_.erase(path_utf8);
 		return;
 	}
 
@@ -514,6 +531,7 @@ void ClipListModel::forget_thumbnail(const std::string &path_utf8)
 	thumbnails_.erase(path_utf8);
 	pending_.erase(path_utf8);
 	failed_.erase(path_utf8);
+	asked_px_.erase(path_utf8);
 }
 
 void ClipListModel::emit_row_changed(int row, const QList<int> &roles)

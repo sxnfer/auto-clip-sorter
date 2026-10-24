@@ -550,6 +550,7 @@ void ClipDock::Impl::apply_layout(DockLayout layout)
 	line_bottom_->setVisible(!row);
 	line_side_->setVisible(row || wide);
 	list_->set_strip(row);
+	model_->set_picture_px(row ? ClipListModel::kCardPicturePx : ClipListModel::kThumbRequestPx);
 	model_->set_grouped(!row);
 	// The type filter is hidden in the strip, so it goes back to All rather than filtering out of sight.
 	if (row && kinds_->current() != 0) {
