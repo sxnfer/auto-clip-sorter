@@ -2,6 +2,41 @@
 
 All notable changes to Clip Atlas are listed here. The format follows Keep a Changelog.
 
+## [1.1.0] - 2026-10-24
+
+### Changed
+
+#### M6: The dock, redrawn ("Native Plus")
+
+- The Clip Atlas dock is redrawn to follow your OBS theme, dark or light: rounded rows, painted
+  icons, the theme's own green and amber for status, and no Windows-coloured selection.
+- It arranges itself for where you put it: a list in a side column, a header rail with a strip of
+  large cards in the short bottom row (the mouse wheel scrolls it sideways), or, floated large, a
+  list with a preview of the selected clip and its details.
+- Clips are grouped by day: Today, Yesterday, Previous 7 days, then by month, each group with its
+  count and size. Rows show a short title ("Replay", "Recording", or your own name for a renamed
+  clip), the game and size, and the time.
+- Game chips with clip counts replace the game list, and a type filter shows only replays,
+  recordings or screenshots.
+- **Save replay** in the dock saves the Replay Buffer, as OBS's hotkey does.
+- After each save, a note says where the clip was filed (**Filed in Elden Ring › 2026-10**), with
+  **Show** to open its folder; the new clip is marked **New**. A clip that couldn't be sorted gets
+  a note with the reason.
+- Hovering a clip shows **Open**, **Show in folder** and **More actions** buttons. **Ctrl+F** goes
+  to the search, and **Esc** clears it.
+- The footer shows how many clips there are and their total size, next to icon buttons for the
+  clips folder, **Refresh** and the settings.
+- A clip without a Windows thumbnail shows a tile with its type, instead of the file type's icon.
+
+### Known limitations
+
+- With **Auto-sort** off, a replay saved with **Save replay** appears in the dock after
+  **Refresh**.
+- Times and month names follow your Windows regional settings, while the dock's words follow OBS's
+  language.
+- Themes other than OBS's own may not define the green and amber the dock reads; then it uses
+  its own.
+
 ## [1.0.0] - 2026-10-21
 
 ### Added

@@ -41,6 +41,9 @@ column (default)                               row (short and wide)
   scrolls it sideways), and has no group headers.
 - **wide** shows `ClipPreview` for the current clip; entering it selects the first clip when none is selected.
 - The toast sits above the footer (column, wide) or at the bottom of the rail (row).
+- **Minimum size**: the dock sets an explicit minimum (200 x 120), which a layout doesn't override. The column
+  layout's own minimum is taller than the bottom row, so without it the dock could never get short enough to switch
+  to the row layout. A dock made smaller than its layout needs squeezes the list first.
 
 ## Widget tree
 
@@ -56,7 +59,7 @@ ClipDock : QWidget                                    ui/clip-dock
 ├─ QLineEdit             search, leading search icon, clear button
 ├─ ChipBar               All / each game / Not sorted, with counts   ui/dock-controls
 ├─ SegmentBar            All / Replays / Recordings / Screenshots
-├─ QStackedWidget        QListView (ClipListModel + ClipListDelegate) | EmptyState
+├─ QStackedWidget        ClipListView (ClipListModel + ClipListDelegate) | EmptyState   ui/clip-list-view
 ├─ ClipPreview           wide only                                    ui/clip-preview
 ├─ DockToast             overlay child, in no layout                  ui/dock-toast
 └─ footer                TextBlock summary + GhostButtons: Open clips folder, Refresh, Settings
@@ -83,23 +86,25 @@ ClipDock : QWidget                                    ui/clip-dock
 
 Every new string is in `data/locale/en-US.ini` under `Dock.*`. The ones that compose:
 `Dock.Count.One` / `Dock.Count.Many` ("%1 clips"), `Dock.Summary` ("%1 · %2"), `Dock.Toast.Filed` ("Filed in %1"),
-`Dock.Toast.Failed` ("Couldn't sort %1"), `Dock.Footer.Truncated` ("Showing the newest %1 clips"). Month headers use
-`QLocale::system()`'s month name and year; times of day use its short time format.
+`Dock.Toast.Failed` ("Couldn't sort %1"), `Dock.Footer.Truncated` ("Showing the newest %1 clips"), `Dock.Filter.More`
+("+%1"). Month headers use `QLocale::system()`'s standalone month name, with the year unless it is this year; times
+of day use its short time format without the seconds.
 
 ## Behaviour
 
 | Part | Behaviour |
 |---|---|
-| Header | Game: avatar with `initials_of(name)` on Highlight, eyebrow `Dock.NowPlaying`; none: gamepad, `Dock.WaitingForGame`, `Dock.NoGame` dimmed. Pill: on (by us / by the user), stopped (with `Dock.Replay.WithGame` while auto start is on), off in OBS (warning colour). Save replay is enabled only while the buffer runs and calls `obs_frontend_replay_buffer_save()` (in the 31.0 header) after checking `obs_frontend_replay_buffer_active()`. |
-| Chips | `Dock.Filter.All` with the index's clip count, then each `ClipIndex::games()` entry with its count, then `Dock.Game.Unfiled` when `has_unfiled()`. The choice is kept while its chip exists; otherwise All. |
+| Header | Game: avatar with `initials_of(name)` on Highlight, eyebrow `Dock.NowPlaying`; none: gamepad, `Dock.WaitingForGame`, `Dock.NoGame` dimmed. Pill: on (by us / by the user), stopped (with `Dock.Replay.WithGame` while auto start is on), off in OBS (warning colour); the detail goes first when it is narrow. Save replay is enabled only while the buffer runs and calls `obs_frontend_replay_buffer_save()` (in the 31.0 header) after checking `obs_frontend_replay_buffer_active()`; it shows its icon alone when its row can't fit the pill's status and the text. |
+| Chips | `Dock.Filter.All` with the index's clip count, then each `ClipIndex::games()` entry with its count, then `Dock.Game.Unfiled` when `has_unfiled()`. The choice is kept while its chip exists; otherwise All. At most 2 rows in the column, 1 in the row layout and 3 in the wide one; the rest go in a "+N" chip's menu, and the checked chip is always shown. Left and Right move between chips; the bar is one Tab stop. Hidden while the index is empty. |
 | Kind filter | Sets `ClipQuery::kind` (new). |
 | Groups | `day_group_of(local_date_of(modified), local_date_of(now))` (new, `core/clip-display`): Today, Yesterday, Previous 7 days, then one header per month. A header shows `Dock.Count` and the size. Rebuilt when the date changes (checked by the minute timer). Headers are rows with no item flags, so they can't be selected. |
-| Rows | Picture 80 x 45 with a kind badge (no picture: a tile with the time); title from `parse_clip_title()` (new), as "<prefix or kind> <time><suffix>", else the stem; game and size below; time on the right (today and yesterday: time of day; previous 7 days: short weekday and time; older: day and short month). Hovering shows Open, Show in folder and More… (the right-click menu) in place of the time. |
-| Cards (row layout) | Picture with the time and kind, New badge, title and game · size below. |
-| Fresh clip | The clip filed most recently in this session shows New, and its row flashes once in the accent. |
+| Rows | Picture 80 x 45, cropped to fill, with a kind badge (no picture: a tile with the kind's icon); title from `parse_clip_title()` (new) as "<prefix or kind><suffix>" ("Replay", "Replay (2)", "Recording"), else the stem, because the time is at the right; game and size below; the time at the right of the title (today and yesterday: time of day; previous 7 days: short weekday and time; under a month: short weekday and day of the month). Hovering shows Open, Show in folder and More… (the right-click menu) in place of the time; a click there doesn't open the row. |
+| Cards (row layout) | Picture with the time ("Today 21:46", "Yesterday 21:46", "Wed 20:03", else the short date) and the New badge on it, the kind badge, the hover actions over its corner, title and game · size below. A selected card has an accent outline. |
+| Fresh clip | The clip filed most recently in this session shows New (dropped when the title would have to be cut for it), and its row flashes once in the accent. |
+| Titles with the time | The preview and the toast add the time to OBS's names ("Replay 21:46:58"). |
 | Toast | After a clip is filed (moved or copied): `Dock.Toast.Filed` with `folders_below(base, final_path)` (new) joined by " › ", and the title and size; Show reveals the file. After a failed sort: `Dock.Toast.Failed` and the reason; Show reveals the original. 5 s, paused while hovered; a new toast replaces the old one. |
 | Preview (wide) | Picture at 640 px from `thumbnail_provider()` (its own small cache; the list's picture meanwhile), title, path, Game / Kind / Saved / Size, and Open, Show in folder, Rename…, Move to game…, Move to Recycle Bin… (the M3 actions). |
-| Footer | `Dock.Count` and total size of the index (`Dock.Empty.Title` when empty), or `Dock.Footer.Truncated` when the last scan hit the cap. |
+| Footer | `Dock.Summary` of `Dock.Count` and the total size of the index (empty when the index is), or `Dock.Footer.Truncated` when the last scan hit the cap. |
 | Empty | No clips: `Dock.Empty.Title` and `Dock.Empty.Body`. Nothing matches: `Dock.Empty.NoMatch` and `Dock.Empty.NoMatchHint`. |
 
 ## Threads and lifetime
