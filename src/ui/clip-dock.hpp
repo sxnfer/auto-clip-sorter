@@ -158,6 +158,8 @@ public:
 	void on_clip_sorted(const ClipSorted &clip);
 	// OBS_FRONTEND_EVENT_THEME_CHANGED.
 	void on_theme_changed();
+	// A filing step, from ClipFiler on the UI thread, for the activity pill.
+	void on_activity(const ActivityEvent &event);
 
 	// For the update banner (M5). nullptr after stop().
 	BannerArea *banners();

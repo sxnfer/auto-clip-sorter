@@ -1210,3 +1210,44 @@ TEST_CASE("UTF-8 file names survive a move", "[file-mover]")
 	CHECK(read_file(r.final_path) == "utf8");
 	CHECK(!fs::exists(source));
 }
+
+TEST_CASE("Move start observer runs on the worker before the outcome and cannot break filing", "[file-mover]")
+{
+	TempDir temp;
+	const fs::path source = temp.path() / "start.mkv";
+	write_file(source, "safe recording");
+	FileMover mover;
+	MoveLog log;
+	std::atomic<int> starts{0};
+	std::thread::id observer_thread;
+	mover.move(source, temp.path() / "dest", log.callback(), [&] {
+		observer_thread = std::this_thread::get_id();
+		++starts;
+		throw std::runtime_error("observer failure");
+	});
+	const auto results = log.wait_for(1);
+	REQUIRE(results.size() == 1);
+	CHECK(results[0].result.status == MoveStatus::moved);
+	CHECK(starts == 1);
+	CHECK(observer_thread == results[0].thread);
+	CHECK(observer_thread != std::this_thread::get_id());
+	CHECK(read_file(results[0].result.final_path) == "safe recording");
+	mover.shutdown(false);
+	mover.move(source, temp.path() / "dest", log.callback(), [&] { ++starts; });
+	CHECK(log.wait_for(2)[1].result.status == MoveStatus::cancelled);
+	CHECK(starts == 1);
+}
+
+TEST_CASE("A queued move cancelled behind a wait never announces a start", "[file-mover]")
+{
+	TempDir temp;
+	FileMover mover;
+	StableLog waits;
+	MoveLog moves;
+	std::atomic<int> starts{0};
+	mover.wait_stable(temp.path() / "missing", 1s, 60s, waits.callback());
+	mover.move(temp.path() / "clip.mkv", temp.path() / "sorted", moves.callback(), [&] { ++starts; });
+	mover.shutdown(false);
+	CHECK(moves.wait_for(1)[0].result.status == MoveStatus::cancelled);
+	CHECK(starts == 0);
+}
