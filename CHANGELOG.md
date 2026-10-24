@@ -2,7 +2,7 @@
 
 All notable changes to Clip Atlas are listed here. The format follows Keep a Changelog.
 
-## [Unreleased]
+## [1.1.1] - 2026-10-24
 
 ### Fixed
 
