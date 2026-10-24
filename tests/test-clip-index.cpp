@@ -687,6 +687,45 @@ TEST_CASE("ClipIndex::query search needs every term to match the name or the fol
 	CHECK(names_of(index.query(both)) == unfiled_replays);
 }
 
+TEST_CASE("ClipIndex::query filters by kind, together with the game and the search", "[clip-index]")
+{
+	ClipIndex index;
+	ClipEntry replay = make_entry("CS2", "Replay 2026-10-21 18-04-12.mkv", at(4));
+	replay.kind = ClipKind::replay;
+	ClipEntry shot = make_entry("CS2", "Screenshot 2026-10-21 18-05-00.png", at(3));
+	shot.kind = ClipKind::screenshot;
+	ClipEntry recording = make_entry("Fortnite", "2026-10-20 20-00-00.mp4", at(2));
+	recording.kind = ClipKind::recording;
+	ClipEntry other_replay = make_entry("Fortnite", "Replay 2026-10-20 21-00-00.mkv", at(1));
+	other_replay.kind = ClipKind::replay;
+	for (const ClipEntry &clip : {replay, shot, recording, other_replay})
+		index.upsert(clip);
+
+	ClipQuery replays;
+	replays.kind = ClipKind::replay;
+	const Names replay_names = {"Replay 2026-10-21 18-04-12.mkv", "Replay 2026-10-20 21-00-00.mkv"};
+	CHECK(names_of(index.query(replays)) == replay_names);
+
+	ClipQuery shots;
+	shots.kind = ClipKind::screenshot;
+	const Names shot_names = {"Screenshot 2026-10-21 18-05-00.png"};
+	CHECK(names_of(index.query(shots)) == shot_names);
+
+	// Every filter has to hold at once.
+	ClipQuery fortnite_replays;
+	fortnite_replays.kind = ClipKind::replay;
+	fortnite_replays.game_folder = "Fortnite";
+	const Names one = {"Replay 2026-10-20 21-00-00.mkv"};
+	CHECK(names_of(index.query(fortnite_replays)) == one);
+	fortnite_replays.search = "18-04";
+	CHECK(index.query(fortnite_replays).empty());
+
+	ClipQuery no_recordings_in_cs2;
+	no_recordings_in_cs2.kind = ClipKind::recording;
+	no_recordings_in_cs2.game_folder = "CS2";
+	CHECK(index.query(no_recordings_in_cs2).empty());
+}
+
 namespace {
 
 // True when `age` has this unit and count.

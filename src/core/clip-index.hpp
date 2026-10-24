@@ -105,6 +105,8 @@ ScanResult scan_clips_folder(const std::filesystem::path &base, const ScanOption
 struct ClipQuery {
 	// nullopt: every game. "": only files directly in <base>.
 	std::optional<std::string> game_folder;
+	// nullopt: every kind.
+	std::optional<ClipKind> kind;
 	// Whitespace-separated terms; a clip matches when every term is a substring
 	// of its file_name or game_folder, ignoring ASCII case. Empty: everything.
 	std::string search;
