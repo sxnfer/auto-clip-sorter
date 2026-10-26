@@ -444,3 +444,219 @@ TEST_CASE("evaluate_update offers an update exactly when is_newer_version says t
 		}
 	}
 }
+
+namespace {
+
+const std::string kDigestHex = "55e1b8e0e98b4526269325853d056e408a3d6643b2263f09c84197368d19693b";
+
+// The installer asset GitHub lists for release `tag` of version `version`, as in the 1.1.2 release.
+ReleaseAsset installer_asset(const std::string &tag, const std::string &version)
+{
+	ReleaseAsset asset;
+	asset.name = "clip-atlas-" + version + "-windows-x64-installer.exe";
+	asset.download_url = kTrustedPrefix + "download/" + tag + "/" + asset.name;
+	asset.size = 4476588;
+	asset.state = "uploaded";
+	asset.digest = "sha256:" + kDigestHex;
+	return asset;
+}
+
+// A published release with the files the release job uploads: the zip and source first, then the installer.
+ReleaseInfo with_installer(const std::string &tag, const std::string &version)
+{
+	ReleaseInfo release = published(tag);
+	ReleaseAsset zip = installer_asset(tag, version);
+	zip.name = "clip-atlas-" + version + "-windows-x64.zip";
+	zip.download_url = kTrustedPrefix + "download/" + tag + "/" + zip.name;
+	release.assets.push_back(zip);
+	release.assets.push_back(installer_asset(tag, version));
+	return release;
+}
+
+} // namespace
+
+TEST_CASE("installer_file_name is the name Package-Windows.ps1 gives the installer")
+{
+	CHECK(installer_file_name("1.2.0") == "clip-atlas-1.2.0-windows-x64-installer.exe");
+	CHECK(installer_file_name("2.0.0-rc.1") == "clip-atlas-2.0.0-rc.1-windows-x64-installer.exe");
+}
+
+TEST_CASE("the installer runs without its wizard and waits for OBS")
+{
+	CHECK(std::string(kInstallerParameters) == "/SILENT /SP- /NORESTART /WAITOBS");
+}
+
+TEST_CASE("sha256_from_digest reads GitHub's sha256 digests, in lowercase")
+{
+	CHECK(sha256_from_digest("sha256:" + kDigestHex) == kDigestHex);
+	CHECK(sha256_from_digest("sha256:55E1B8E0E98B4526269325853D056E408A3D6643B2263F09C84197368D19693B") ==
+	      kDigestHex);
+}
+
+TEST_CASE("sha256_from_digest refuses every other form")
+{
+	CHECK_FALSE(sha256_from_digest(""));
+	CHECK_FALSE(sha256_from_digest("sha256:"));
+	CHECK_FALSE(sha256_from_digest(kDigestHex));                             // no algorithm
+	CHECK_FALSE(sha256_from_digest("SHA256:" + kDigestHex));                 // the prefix is exact
+	CHECK_FALSE(sha256_from_digest("sha512:" + kDigestHex));                 // another algorithm
+	CHECK_FALSE(sha256_from_digest("sha256:" + kDigestHex.substr(1)));       // 63 digits
+	CHECK_FALSE(sha256_from_digest("sha256:" + kDigestHex + "0"));           // 65 digits
+	CHECK_FALSE(sha256_from_digest("sha256:" + kDigestHex.substr(1) + "g")); // not hex
+	CHECK_FALSE(sha256_from_digest(" sha256:" + kDigestHex));                // whitespace
+	CHECK_FALSE(sha256_from_digest("sha256:" + kDigestHex.substr(1) + " ")); // whitespace
+	CHECK_FALSE(sha256_from_digest("sha256:" + kDigestHex.substr(1) + std::string(1, '\0')));
+}
+
+TEST_CASE("find_installer picks the release's installer and builds its address")
+{
+	const ReleaseInfo release = with_installer("1.2.0", "1.2.0");
+	const std::optional<InstallerDownload> installer = find_installer(release, "1.2.0");
+	REQUIRE(installer);
+	CHECK(installer->url == kTrustedPrefix + "download/1.2.0/clip-atlas-1.2.0-windows-x64-installer.exe");
+	CHECK(installer->file_name == "clip-atlas-1.2.0-windows-x64-installer.exe");
+	CHECK(installer->size == 4476588);
+	CHECK(installer->sha256 == kDigestHex);
+}
+
+TEST_CASE("find_installer works for a tag with a leading v")
+{
+	const std::optional<InstallerDownload> installer = find_installer(with_installer("v1.2.0", "1.2.0"), "1.2.0");
+	REQUIRE(installer);
+	CHECK(installer->url == kTrustedPrefix + "download/v1.2.0/clip-atlas-1.2.0-windows-x64-installer.exe");
+}
+
+TEST_CASE("find_installer finds nothing without a usable installer")
+{
+	SECTION("no assets")
+	{
+		CHECK_FALSE(find_installer(published("1.2.0"), "1.2.0"));
+	}
+	SECTION("the installer of another version")
+	{
+		CHECK_FALSE(find_installer(with_installer("1.2.0", "1.1.9"), "1.2.0"));
+	}
+	SECTION("an empty version")
+	{
+		CHECK_FALSE(find_installer(with_installer("1.2.0", "1.2.0"), ""));
+	}
+	SECTION("a file still uploading")
+	{
+		ReleaseInfo release = with_installer("1.2.0", "1.2.0");
+		release.assets.back().state = "starter";
+		CHECK_FALSE(find_installer(release, "1.2.0"));
+	}
+	SECTION("no digest, or one that is not sha256")
+	{
+		ReleaseInfo release = with_installer("1.2.0", "1.2.0");
+		release.assets.back().digest = "";
+		CHECK_FALSE(find_installer(release, "1.2.0"));
+		release.assets.back().digest = "md5:0123456789abcdef0123456789abcdef";
+		CHECK_FALSE(find_installer(release, "1.2.0"));
+	}
+	SECTION("a size of zero, below zero, or over the cap")
+	{
+		ReleaseInfo release = with_installer("1.2.0", "1.2.0");
+		release.assets.back().size = 0;
+		CHECK_FALSE(find_installer(release, "1.2.0"));
+		release.assets.back().size = -1;
+		CHECK_FALSE(find_installer(release, "1.2.0"));
+		release.assets.back().size = kMaxInstallerBytes + 1;
+		CHECK_FALSE(find_installer(release, "1.2.0"));
+		release.assets.back().size = kMaxInstallerBytes;
+		CHECK(find_installer(release, "1.2.0"));
+	}
+}
+
+TEST_CASE("find_installer only accepts the repository's own download address for the file")
+{
+	const std::string name = "clip-atlas-1.2.0-windows-x64-installer.exe";
+	for (const std::string &url : {
+		     std::string("https://evil.example/") + name,
+		     "http://github.com/sxnfer/auto-clip-sorter/releases/download/1.2.0/" + name,
+		     "https://github.com/someone-else/auto-clip-sorter/releases/download/1.2.0/" + name,
+		     kTrustedPrefix + "download/1.1.0/" + name,
+		     kTrustedPrefix + "download/1.2.0/" + name + "?x=1",
+		     kTrustedPrefix + "download/1.2.0/other/" + name,
+		     std::string(""),
+	     }) {
+		ReleaseInfo release = with_installer("1.2.0", "1.2.0");
+		release.assets.back().download_url = url;
+		CAPTURE(url);
+		CHECK_FALSE(find_installer(release, "1.2.0"));
+	}
+}
+
+TEST_CASE("find_installer refuses a tag that could leave its path segment")
+{
+	for (const char *tag : {"", "1.2.0/..", "..", "a/b", "1.2.0?x", "1.2.0#x", "1.2 0", "1.2.0%2F"}) {
+		ReleaseInfo release = with_installer("1.2.0", "1.2.0");
+		release.tag_name = tag;
+		release.assets.back().download_url =
+			kTrustedPrefix + "download/" + tag + "/" + release.assets.back().name;
+		CAPTURE(tag);
+		CHECK_FALSE(find_installer(release, "1.2.0"));
+	}
+}
+
+TEST_CASE("evaluate_update attaches the installer to an update, and only to an update")
+{
+	SECTION("a newer release with an installer")
+	{
+		const UpdateResult result = evaluate_update("", 200, with_installer("1.2.0", "1.2.0"), "1.1.2");
+		expect_update(result, "1.2.0", kTrustedPrefix + "tag/1.2.0");
+		REQUIRE(result.installer);
+		CHECK(result.installer->file_name == "clip-atlas-1.2.0-windows-x64-installer.exe");
+	}
+	SECTION("a v-prefixed tag still finds the installer named after the bare version")
+	{
+		const UpdateResult result = evaluate_update("", 200, with_installer("v1.2.0", "1.2.0"), "1.1.2");
+		REQUIRE(result.installer);
+		CHECK(result.installer->url ==
+		      kTrustedPrefix + "download/v1.2.0/clip-atlas-1.2.0-windows-x64-installer.exe");
+	}
+	SECTION("a newer release without one still offers its page")
+	{
+		const UpdateResult result = evaluate_update("", 200, published("1.2.0"), "1.1.2");
+		expect_update(result, "1.2.0", kTrustedPrefix + "tag/1.2.0");
+		CHECK_FALSE(result.installer);
+	}
+	SECTION("the same release is not an update")
+	{
+		const UpdateResult result = evaluate_update("", 200, with_installer("1.1.2", "1.1.2"), "1.1.2");
+		expect_up_to_date(result, "1.1.2");
+		CHECK_FALSE(result.installer);
+	}
+}
+
+TEST_CASE("is_installer_location accepts the plugin where the installer puts it")
+{
+	const std::string dll = "C:\\ProgramData\\obs-studio\\plugins\\clip-atlas\\bin\\64bit\\clip-atlas.dll";
+	CHECK(is_installer_location(dll, "C:\\ProgramData"));
+	CHECK(is_installer_location(dll, "C:\\ProgramData\\"));
+	CHECK(is_installer_location(dll, "c:/programdata/"));
+	CHECK(is_installer_location("C:/ProgramData/obs-studio/plugins/clip-atlas/bin/64bit/clip-atlas.dll",
+				    "C:\\ProgramData"));
+	CHECK(is_installer_location("D:\\Data\\OBS-Studio\\Plugins\\Clip-Atlas\\bin\\64bit\\clip-atlas.dll",
+				    "D:\\Data"));
+}
+
+TEST_CASE("is_installer_location refuses every other place")
+{
+	const std::string program_data = "C:\\ProgramData";
+	CHECK_FALSE(is_installer_location("C:\\Program Files\\obs-studio\\obs-plugins\\64bit\\clip-atlas.dll",
+					  program_data));
+	CHECK_FALSE(is_installer_location(
+		"C:\\Users\\San\\AppData\\Roaming\\obs-studio\\plugins\\clip-atlas\\bin\\64bit\\clip-atlas.dll",
+		program_data));
+	CHECK_FALSE(is_installer_location("C:\\ProgramData\\obs-studio\\plugins\\clip-atlas-old\\bin\\clip-atlas.dll",
+					  program_data));
+	CHECK_FALSE(is_installer_location("C:\\ProgramData\\obs-studio\\plugins\\clip-atlas\\", program_data));
+	CHECK_FALSE(is_installer_location(
+		"C:\\ProgramData\\obs-studio\\plugins\\clip-atlas\\..\\other\\bin\\64bit\\other.dll", program_data));
+	CHECK_FALSE(is_installer_location("C:\\ProgramDataX\\obs-studio\\plugins\\clip-atlas\\bin\\clip-atlas.dll",
+					  program_data));
+	CHECK_FALSE(is_installer_location("", program_data));
+	CHECK_FALSE(is_installer_location("C:\\ProgramData\\obs-studio\\plugins\\clip-atlas\\bin\\clip-atlas.dll", ""));
+	CHECK_FALSE(is_installer_location("\\obs-studio\\plugins\\clip-atlas\\bin\\clip-atlas.dll", "\\"));
+}

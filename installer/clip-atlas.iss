@@ -57,6 +57,24 @@ Type: filesandordirs; Name: "{app}\data"
 const
   // Used in the WMI query and in the log line.
   ObsProcessName = 'obs64.exe';
+  // How long /WAITOBS waits for OBS Studio to finish closing, and how often it looks.
+  ObsExitWaitMs = 120000;
+  ObsExitPollMs = 500;
+
+// True when setup was started with /WAITOBS. The plugin passes it, with /SILENT, when it runs this installer
+// as OBS Studio closes, so setup starts while OBS is still shutting down.
+function WaitForObsRequested(): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  for I := 1 to ParamCount do
+    if CompareText(ParamStr(I), '/WAITOBS') = 0 then
+    begin
+      Result := True;
+      Exit;
+    end;
+end;
 
 // True while OBS Studio is running. A WMI failure counts as not running: Restart Manager
 // (CloseApplications=yes) is the second line of defence, so broken WMI must not block setup.
@@ -92,8 +110,25 @@ begin
   end;
 end;
 
+// Gives OBS Studio up to ObsExitWaitMs to finish closing. If it is still running after that, ConfirmObsClosed
+// asks the user as usual.
+procedure WaitForObsExit();
+var
+  Waited: Integer;
+begin
+  Waited := 0;
+  while ObsIsRunning() and (Waited < ObsExitWaitMs) do
+  begin
+    Sleep(ObsExitPollMs);
+    Waited := Waited + ObsExitPollMs;
+  end;
+  Log('clip-atlas: waited ' + IntToStr(Waited) + ' ms for ' + ObsProcessName + ' to close.');
+end;
+
 function InitializeSetup(): Boolean;
 begin
+  if WaitForObsRequested() then
+    WaitForObsExit();
   Result := ConfirmObsClosed('installing');
 end;
 
@@ -114,4 +149,7 @@ begin
     if DirExists(UserCopyDir) then
       MsgBox('An older copy of Clip Atlas was found in your user profile: ' + UserCopyDir + #13#10 + #13#10 + 'OBS Studio would load both copies. Delete that folder yourself, then restart OBS Studio. Setup does not delete it.', mbInformation, MB_OK);
   end;
+  // A silent update shows only a progress window, so this says that it worked and when it takes effect.
+  if (CurStep = ssDone) and WizardSilent() and WaitForObsRequested() then
+    MsgBox('Clip Atlas {#MyAppVersion} is installed. It loads the next time you start OBS Studio.', mbInformation, MB_OK);
 end;

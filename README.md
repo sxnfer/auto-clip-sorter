@@ -5,7 +5,7 @@
 Clip Atlas is a native OBS Studio plugin for Windows. It sorts your replays, recordings and
 screenshots into per-game folders automatically, with no Python install and no setup.
 
-> **Status:** version 1.1.2 is out: download it from the
+> **Status:** version 1.1.3 is out: download it from the
 > [Releases page](https://github.com/sxnfer/auto-clip-sorter/releases/latest) (see
 > [`docs/install.md`](docs/install.md)). The built-in games list, the rules editor and the
 > full settings pages (milestone M4) come later. The original Python script lives in
@@ -49,8 +49,9 @@ screenshots into per-game folders automatically, with no Python install and no s
     itself.
 - **Auto-sort hotkey.** In OBS, open **Settings → Hotkeys** and bind a key to
   **Toggle Clip Atlas auto-sort** to turn auto-sorting on or off.
-- **Update check.** Once a day, Clip Atlas asks GitHub whether a newer version exists and tells
-  you. It never downloads or installs anything by itself. You can turn the check off in
+- **Updates.** Once a day, Clip Atlas asks GitHub whether a newer version exists. If you used
+  the installer, it downloads the update in the background and installs it after you close OBS,
+  once Windows asks for your permission. You can turn either part off in
   **Clip Atlas Settings…**.
 
 ### Planned, not in this release
@@ -94,7 +95,8 @@ start, and the warning that Windows may show for the installer, which is not cod
 
 ## Update
 
-Download the new installer and run it. Your settings are kept. The
+If you used the installer, Clip Atlas updates itself when you close OBS. You can also download
+the new installer and run it. Your settings are kept. The
 [updating steps](docs/install.md#updating) also cover the zip.
 
 ## Uninstall

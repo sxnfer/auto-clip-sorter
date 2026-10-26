@@ -437,6 +437,7 @@ sorted. M5 now follows M3. Every M4 WP stays here, unchanged, for later.
 | WP5.5 | `obs/update-checker` + "Updates" setting + Tools menu item + update banner + hotkey wiring | B | 5.1, 5.2, 5.4, WP3.6 | ✅ |
 | WP5.6 | Docs: README install guide, SmartScreen steps, troubleshooting, CHANGELOG | B | 5.3 | ✅ |
 | WP5.7 | Release candidate: version bump, tag → draft release | Orch | all | ⏳ version bumped; the tag needs the user |
+| WP5.8 | Install updates when OBS closes: installer download + SHA-256 check, launch at exit, `/WAITOBS` in the installer, setting | Orch | 5.5 | ✅ code; needs a Windows test |
 
 File ownership:
 
@@ -453,9 +454,16 @@ File ownership:
   (published, non-pre-release releases only; 404 while none exists) at most once a day,
   60 s after start-up, while "Check for updates once a day" is on. A newer version shows a
   dismissible dock banner and the Tools menu has "Check for Clip Atlas Updates…".
-  **Nothing is downloaded or installed automatically:** the button opens the release page in
-  the browser, and only a URL under `https://github.com/sxnfer/auto-clip-sorter/releases/` is
-  ever opened.
+  Only a URL under `https://github.com/sxnfer/auto-clip-sorter/releases/` is ever opened.
+- **WP5.8** (replaces "nothing is downloaded or installed automatically"): while "Download
+  updates and install them when OBS closes" is on and the plugin DLL is under
+  `%ProgramData%\obs-studio\plugins\clip-atlas\`, a found update's installer asset is
+  downloaded into `plugin_config\clip-atlas\updates\` and checked against the asset's
+  `digest` (`sha256:…`, from the releases API) and `size`. The download URL is built from the
+  tag and file name, never taken from the answer. At `OBS_FRONTEND_EVENT_EXIT` the checked
+  installer is started with `ShellExecuteExW("runas")` and `/SILENT /SP- /NORESTART /WAITOBS`;
+  the installer polls for `obs64.exe` to exit (up to 2 min) before it installs. Any other copy
+  (the zip) keeps the release-page button.
 - **WP5.3** installs to `%ProgramData%\obs-studio\plugins\clip-atlas\`, which requires
   admin rights.
   - It detects whether `obs64.exe` is running and asks the user to close it.
@@ -552,3 +560,4 @@ worker agents; the WP split and commit messages follow the usual process.
 | 2026-10-24 | M6 testing: an offscreen harness (outside the repo) compiles the real `core` and `ui` sources with fakes for the OBS calls, renders every layout in dark and light themes and runs 41 functional checks. The painted controls have no `Q_OBJECT`, so tests find them with `dynamic_cast`, not `findChild<T>()` | Orchestrator |
 | 2026-10-24 | WP3.7 activity monitor (from `codex/native-activity-status`, built before M6) merged onto the M6 dock and restyled to Native Plus: the pill joins the Replay Buffer pill's family (notice fill, chip height, keyboard-only focus ring), the panel is an elevated card like the toast with the system's square popup shadow off, steps use the dock's stroke icons in the theme's green and amber instead of text symbols, and all text is painted so the style sheet can't override its muted colour. The idle label reads "Ready to sort" and the received step drops its text check mark for the icon. Behaviour, motion, keyboard and accessibility are otherwise unchanged | User |
 | 2026-10-24 | 1.1.0 ships the WP3.7 activity pill too: it was merged and restyled before the tag, so the changelog lists it under 1.1.0 and `docs/testing/M6.md` covers it (steps 7–11) | User |
+| 2026-10-26 | M5 follow-up: updates install when OBS closes (option "Install when OBS closes", picked over closing OBS from the plugin and over keeping the page). The hash check guards against a broken download, not a tampered release; code signing is still the fix for that | User |

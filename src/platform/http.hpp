@@ -1,4 +1,5 @@
-// Clip Atlas — one HTTPS GET at a time, for the update check.
+// Clip Atlas — one HTTPS GET at a time, for the update check and the
+// installer download.
 //
 // Windows implementation (http-win.cpp) with WinHTTP (winhttp.h, links
 // winhttp), on the client's own TaskQueue thread, synchronous calls there:
@@ -26,11 +27,21 @@
 // Redirects follow WinHTTP's default policy, which never goes from HTTPS to
 // HTTP. The body is capped at kMaxBodyBytes: a longer answer is an error.
 //
-// The stub (http-stub.cpp) answers every get() with the error "not supported
-// on this platform".
+// download() runs the same GET with "Accept: application/octet-stream" and
+// writes the body to a file instead of memory. GitHub answers a release
+// download with a redirect to its file host, which WinHTTP follows (HTTPS to
+// HTTPS). The body is hashed with core's Sha256 as it arrives, so the file is
+// written once and never read back. It is written as "<file>.part", and only
+// renamed to its final name once its size and SHA-256 match; on any failure
+// the .part file is removed. The whole download may take kDownloadDeadlineMs,
+// and shutdown() stops one in progress at its next read.
+//
+// The stub (http-stub.cpp) answers every get() and download() with the error
+// "not supported on this platform".
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
@@ -46,15 +57,42 @@ struct HttpResponse {
 	std::string body; // the raw body bytes (UTF-8 for GitHub's JSON)
 };
 
+// A file to download and check.
+struct DownloadRequest {
+	std::string url;        // UTF-8; must start with "https://"
+	std::string user_agent; // UTF-8, as for get()
+	// UTF-8 path of the folder the file goes in, created if missing. The folder
+	// belongs to the download: before it starts, the other files in it named
+	// "clip-atlas-*-installer.exe" or "*.part" (earlier downloads) are removed.
+	std::string folder_utf8;
+	std::string file_name; // UTF-8, a bare file name (no "\", "/", ":" or "..")
+	std::int64_t size = 0; // the exact size in bytes; more or fewer is an error
+	std::string sha256;    // 64 lowercase hex digits; a mismatch is an error
+};
+
+struct DownloadResult {
+	// English reason when there is no checked file (bad request, no network,
+	// HTTP error status, wrong size or checksum, disk error, shut down); ""
+	// otherwise.
+	std::string error;
+	// UTF-8 path of the checked file ("<folder>\<file name>"); "" when `error`
+	// is set.
+	std::string path_utf8;
+};
+
 class HttpClient {
 public:
 	static constexpr std::size_t kMaxBodyBytes = 1024 * 1024;
+	// How long a whole download may take, from the request to the last byte.
+	static constexpr int kDownloadDeadlineMs = 10 * 60 * 1000;
 
 	// Called once per get(), on the client's thread (never inside get()), or
 	// right away on the calling thread after shutdown() with error "Clip Atlas
 	// is shutting down". Must not throw (it is caught and dropped). Hop to the
 	// UI thread before touching plugin state.
 	using Done = std::function<void(const HttpResponse &response)>;
+	// As Done, for download().
+	using DownloadDone = std::function<void(const DownloadResult &result)>;
 
 	HttpClient();
 	// Calls shutdown().
@@ -69,9 +107,15 @@ public:
 	// Safe from any thread.
 	void get(const std::string &url_utf8, const std::string &user_agent, Done done);
 
+	// Downloads `request.url` into `request.folder_utf8` and checks it. A file
+	// of that name already there with the right size and SHA-256 is kept and
+	// answered at once, without the network. Queued with get()'s requests, in
+	// order. Safe from any thread.
+	void download(DownloadRequest request, DownloadDone done);
+
 	// Drops queued requests (their `done` gets "Clip Atlas is shutting down"),
-	// waits for the one running (at most the timeouts above), and stops the
-	// thread. Idempotent. Call it from stop_all() at EXIT.
+	// stops a running download at its next read, waits for the request
+	// running (at most the timeouts above), and stops the thread. Idempotent. Call it from stop_all() at EXIT.
 	void shutdown();
 
 private:

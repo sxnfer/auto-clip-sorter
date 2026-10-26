@@ -195,13 +195,17 @@ SettingsDialog::SettingsDialog(SettingsStore &store, QWidget *parent) : QDialog(
 	connect(play_save_sound_, &QCheckBox::toggled, this,
 		[sound_details](bool on) { sound_details->setEnabled(on); });
 
-	// Updates (M5): the daily check's switch, and a line saying nothing is installed without asking. The check
-	// reads the setting when each check is due, so no signal is needed here.
+	// Updates (M5): the daily check's switch, the switch for installing updates as OBS closes, and a line saying how
+	// that works. Both are read when they are used, so no signal is needed here.
 	auto *updates_box = new QGroupBox(module_text("Settings.Updates"), this);
 	auto *updates_form = new QFormLayout(updates_box);
 
 	check_for_updates_ = new QCheckBox(module_text("Settings.CheckForUpdates"), this);
 	updates_form->addRow(check_for_updates_);
+
+	// Independent of the daily check: an update found from the Tools menu is installed the same way.
+	install_updates_ = new QCheckBox(module_text("Settings.InstallUpdates"), this);
+	updates_form->addRow(install_updates_);
 
 	// Plain text: the help line is a sentence, not markup.
 	auto *updates_help = new QLabel(module_text("Settings.CheckForUpdates.Help"), this);
@@ -258,6 +262,7 @@ void SettingsDialog::accept()
 		settings.save_sound_path = to_utf8(save_sound_path_->text().trimmed());
 		settings.save_sound_volume = save_sound_volume_->value();
 		settings.check_for_updates = check_for_updates_->isChecked();
+		settings.install_updates_on_exit = install_updates_->isChecked();
 		// set() applies the settings for this session even if the file can't be written, so the
 		// dialog closes either way. The warning is the only sign that the change will not survive a
 		// restart.
@@ -359,6 +364,7 @@ void SettingsDialog::load(const Settings &settings)
 	save_sound_path_->setText(to_qstring(settings.save_sound_path));
 	save_sound_volume_->setValue(settings.save_sound_volume);
 	check_for_updates_->setChecked(settings.check_for_updates);
+	install_updates_->setChecked(settings.install_updates_on_exit);
 }
 
 void open_settings_dialog(SettingsStore &store, QWidget *parent)
