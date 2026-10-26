@@ -2,7 +2,7 @@
 
 All notable changes to Clip Atlas are listed here. The format follows Keep a Changelog.
 
-## [Unreleased]
+## [1.1.3] - 2026-10-26
 
 ### Added
 
@@ -11,6 +11,7 @@ All notable changes to Clip Atlas are listed here. The format follows Keep a Cha
   ready. After you close OBS, Windows asks for permission, and the installer updates Clip Atlas with only a progress
   window. It works for copies installed with the installer; a copy from the zip still gets the release page. Turn it
   off with **Download updates and install them when OBS closes** under **Updates** in Settings.
+- Earlier versions can't do this yet, so install 1.1.3 itself by hand. Updates after 1.1.3 install themselves.
 
 ## [1.1.2] - 2026-10-26
 
