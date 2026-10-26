@@ -175,7 +175,7 @@ bool Settings::operator==(const Settings &o) const
 	       save_sound_volume == o.save_sound_volume && source_selection == o.source_selection &&
 	       chosen_sources == o.chosen_sources && use_product_name == o.use_product_name &&
 	       recording_dominant_game == o.recording_dominant_game && game_rules == o.game_rules &&
-	       check_for_updates == o.check_for_updates;
+	       check_for_updates == o.check_for_updates && install_updates_on_exit == o.install_updates_on_exit;
 }
 
 Settings validated(Settings settings)
@@ -219,6 +219,7 @@ Settings load_settings(const SettingsReader &reader)
 	read_bool(reader, settings_keys::kRecordingDominantGame, settings.recording_dominant_game);
 	read_game_rules(reader, settings.game_rules);
 	read_bool(reader, settings_keys::kCheckForUpdates, settings.check_for_updates);
+	read_bool(reader, settings_keys::kInstallUpdatesOnExit, settings.install_updates_on_exit);
 
 	// A missing or mistyped schema_version reads as the current one, so nothing is migrated.
 	// A newer one is left as it is: the keys this build knows were read above, the rest are ignored.
@@ -252,6 +253,7 @@ void save_settings(const Settings &settings, SettingsWriter &writer)
 	writer.set_bool(settings_keys::kRecordingDominantGame, settings.recording_dominant_game);
 	writer.set_records(settings_keys::kGameRules, rules_to_records(settings.game_rules));
 	writer.set_bool(settings_keys::kCheckForUpdates, settings.check_for_updates);
+	writer.set_bool(settings_keys::kInstallUpdatesOnExit, settings.install_updates_on_exit);
 }
 
 void migrate_settings([[maybe_unused]] Settings &settings, [[maybe_unused]] int from_version,

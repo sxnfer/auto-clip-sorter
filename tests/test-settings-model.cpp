@@ -75,7 +75,7 @@ private:
 	}
 };
 
-// Every key save_settings() must write: the 21 constants in settings_keys.
+// Every key save_settings() must write: the 22 constants in settings_keys.
 const char *const kAllKeys[] = {
 	settings_keys::kGameFolders,           settings_keys::kPlaySaveSound,  settings_keys::kSaveSoundPath,
 	settings_keys::kSaveSoundVolume,       settings_keys::kSchemaVersion,  settings_keys::kClipsFolder,
@@ -84,6 +84,7 @@ const char *const kAllKeys[] = {
 	settings_keys::kReplayAutoStart,       settings_keys::kReplayAutoStop, settings_keys::kGracePeriodSeconds,
 	settings_keys::kSourceSelection,       settings_keys::kChosenSources,  settings_keys::kUseProductName,
 	settings_keys::kRecordingDominantGame, settings_keys::kGameRules,      settings_keys::kCheckForUpdates,
+	settings_keys::kInstallUpdatesOnExit,
 };
 
 // Each entry moves one field away from its default and names the key that field is saved
@@ -114,6 +115,7 @@ const FieldChange kFieldChanges[] = {
 	{[](Settings &s) { s.recording_dominant_game = true; }, settings_keys::kRecordingDominantGame},
 	{[](Settings &s) { s.game_rules = {{"celeste.exe", "", true}}; }, settings_keys::kGameRules},
 	{[](Settings &s) { s.check_for_updates = false; }, settings_keys::kCheckForUpdates},
+	{[](Settings &s) { s.install_updates_on_exit = false; }, settings_keys::kInstallUpdatesOnExit},
 };
 
 // Every field moved away from its default, for the round-trip test.
@@ -140,6 +142,7 @@ Settings customised_settings()
 	s.recording_dominant_game = true;
 	s.game_rules = {{"eldenring.exe", "Elden Ring", false}, {"celeste.exe", "", true}};
 	s.check_for_updates = false;
+	s.install_updates_on_exit = false;
 	return s;
 }
 
@@ -219,6 +222,7 @@ TEST_CASE("defaults match the header and docs/PLAN.md")
 	CHECK(!s.recording_dominant_game);
 	CHECK(s.game_rules.empty());
 	CHECK(s.check_for_updates);
+	CHECK(s.install_updates_on_exit);
 	CHECK(validated(s) == s); // the defaults need no correction
 }
 
@@ -328,7 +332,8 @@ TEST_CASE("mistyped values keep their defaults")
 	     {settings_keys::kGameFolders, settings_keys::kMonthlyFolders, settings_keys::kAutoSort,
 	      settings_keys::kSortReplays, settings_keys::kSortRecordings, settings_keys::kSortScreenshots,
 	      settings_keys::kReplayAutoStart, settings_keys::kReplayAutoStop, settings_keys::kUseProductName,
-	      settings_keys::kRecordingDominantGame, settings_keys::kCheckForUpdates, settings_keys::kPlaySaveSound})
+	      settings_keys::kRecordingDominantGame, settings_keys::kCheckForUpdates, settings_keys::kPlaySaveSound,
+	      settings_keys::kInstallUpdatesOnExit})
 		store.strings[key] = "false";
 	store.strings[settings_keys::kGracePeriodSeconds] = "3";
 	store.strings[settings_keys::kSaveSoundVolume] = "3";

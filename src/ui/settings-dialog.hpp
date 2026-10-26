@@ -16,9 +16,10 @@
 //     volume shown in the dialog, even before OK, through sound_player(); an
 //     empty file field, or a failure the player reports, is shown in a
 //     message box.
-//   Updates (M5): "Check for updates once a day" (check_for_updates), with one
-//     wrapped line of help text (Settings.CheckForUpdates.Help) saying that
-//     nothing is downloaded or installed automatically.
+//   Updates (M5): "Check for updates once a day" (check_for_updates), "Download
+//     updates and install them when OBS closes" (install_updates_on_exit), and
+//     one wrapped line of help text (Settings.CheckForUpdates.Help) saying how
+//     an update is installed and that Windows asks first.
 // M4 turns this into OBS-style sidebar pages (Detection, Replay Buffer, Games,
 // Advanced) without changing how it is opened.
 //
@@ -79,6 +80,7 @@ private:
 	QLineEdit *save_sound_path_ = nullptr;
 	QSlider *save_sound_volume_ = nullptr;
 	QCheckBox *check_for_updates_ = nullptr;
+	QCheckBox *install_updates_ = nullptr;
 	QDialogButtonBox *buttons_ = nullptr;
 };
 

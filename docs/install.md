@@ -88,18 +88,31 @@ should exist. The `clip-atlas` folder must sit directly inside `plugins`, not on
 
 ## Updating
 
-Clip Atlas tells you when a newer version is out, in two ways:
+Clip Atlas checks for a newer version once a day, and **Tools → Check for Clip Atlas Updates…**
+checks right away. The check looks only at full releases, not pre-releases.
 
-- The dock shows a banner that says a newer version is available. Click **Download…** to open
-  the release page in your browser, or **Dismiss** to hide the banner.
-- **Tools → Check for Clip Atlas Updates…** checks right away. If a newer version exists, it
-  asks whether to open the download page.
+If you installed with the installer, Clip Atlas updates itself:
 
-The daily check looks only at full releases, not pre-releases. You can turn it off under
-**Updates** in **Tools → Clip Atlas Settings…**. Nothing is downloaded or installed
-automatically.
+1. When a newer version is out, the dock's banner says **Downloading Clip Atlas …**. The
+   installer downloads in the background, and Clip Atlas checks it against the SHA-256 checksum
+   GitHub lists for it. A file that doesn't match is thrown away.
+2. The banner then says the update is ready and installs when you close OBS. **What's new**
+   opens the release page.
+3. Close OBS as usual. Windows asks whether to let the Clip Atlas installer make changes,
+   because it writes to `%ProgramData%`. The publisher shows as unknown, since the installer is
+   not code-signed yet. Choose **Yes**. A small progress window appears, then a message that
+   the update is installed.
+4. Start OBS Studio again.
 
-To update:
+If you choose **No** at Windows' prompt, nothing changes, and Clip Atlas offers the update again
+after its next daily check. The download is kept in
+`%APPDATA%\obs-studio\plugin_config\clip-atlas\updates\`, so it is not downloaded twice.
+
+If you installed from the zip, or turned off **Download updates and install them when OBS
+closes** under **Updates** in **Tools → Clip Atlas Settings…**, the banner's **Download…**
+button opens the release page instead. You can turn the daily check off there too.
+
+To update by hand:
 
 1. Close OBS Studio.
 2. If you installed with the installer, download the new installer and run it, as in

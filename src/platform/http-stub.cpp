@@ -1,7 +1,7 @@
 // Clip Atlas — the update check's HTTP client on platforms without WinHTTP.
 //
-// Nothing is fetched here. get() answers through `done` at once, on the calling thread, so the plugin's log explains why
-// no update check ran. CMake compiles this file instead of http-win.cpp on every platform but Windows.
+// Nothing is fetched here. get() and download() answer through `done` at once, on the calling thread, so the plugin's
+// log explains why no update check ran. CMake compiles this file instead of http-win.cpp on every platform but Windows.
 #include "http.hpp"
 
 #include <obs-module.h>
@@ -45,6 +45,21 @@ void HttpClient::get(const std::string &, const std::string &, Done done)
 	HttpResponse response;
 	response.error = "not supported on this platform";
 	call_done(done, response);
+}
+
+void HttpClient::download(DownloadRequest, DownloadDone done)
+{
+	DownloadResult result;
+	result.error = "not supported on this platform";
+	if (!done)
+		return;
+	try {
+		done(result);
+	} catch (const std::exception &e) {
+		obs_log(LOG_WARNING, "download callback failed: %s", e.what());
+	} catch (...) {
+		obs_log(LOG_WARNING, "download callback failed: unknown exception");
+	}
 }
 
 void HttpClient::shutdown()

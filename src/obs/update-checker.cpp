@@ -18,6 +18,7 @@
 #include <QObject>
 #include <QTimer>
 
+#include <cstddef>
 #include <cstdint>
 #include <ctime>
 #include <exception>
@@ -44,6 +45,7 @@ constexpr int kTickIntervalMs = 60 * 60 * 1000;
 
 using BmemString = std::unique_ptr<char, void (*)(void *)>;
 using DataPtr = std::unique_ptr<obs_data_t, void (*)(obs_data_t *)>;
+using ArrayPtr = std::unique_ptr<obs_data_array_t, void (*)(obs_data_array_t *)>;
 
 // The wall clock in Unix seconds. The saved check time and update_check_due() use the same clock.
 std::int64_t current_time()
@@ -82,6 +84,21 @@ std::optional<ReleaseInfo> parse_release(const std::string &body)
 	release.prerelease = obs_data_get_bool(data.get(), "prerelease");
 	if (release.tag_name.empty())
 		return std::nullopt;
+	// NULL when there is no "assets" array. find_installer() then finds nothing, and the release page is offered.
+	ArrayPtr assets(obs_data_get_array(data.get(), "assets"), obs_data_array_release);
+	const std::size_t count = assets ? obs_data_array_count(assets.get()) : 0;
+	for (std::size_t i = 0; i < count; ++i) {
+		DataPtr item(obs_data_array_item(assets.get(), i), obs_data_release);
+		if (!item)
+			continue;
+		ReleaseAsset asset;
+		asset.name = string_value(item.get(), "name");
+		asset.download_url = string_value(item.get(), "browser_download_url");
+		asset.size = static_cast<std::int64_t>(obs_data_get_int(item.get(), "size"));
+		asset.state = string_value(item.get(), "state");
+		asset.digest = string_value(item.get(), "digest");
+		release.assets.push_back(std::move(asset));
+	}
 	return release;
 }
 

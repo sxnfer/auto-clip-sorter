@@ -71,6 +71,9 @@ struct Settings {
 
 	// Advanced
 	bool check_for_updates = true; // used from M5
+	// Download a newer release's installer and run it once OBS has closed, whether the daily check or the Tools menu
+	// found it.
+	bool install_updates_on_exit = true;
 
 	bool operator==(const Settings &o) const;
 	bool operator!=(const Settings &o) const { return !(*this == o); }
@@ -129,6 +132,7 @@ constexpr const char *kUseProductName = "use_product_name";
 constexpr const char *kRecordingDominantGame = "recording_dominant_game";
 constexpr const char *kGameRules = "game_rules";
 constexpr const char *kCheckForUpdates = "check_for_updates";
+constexpr const char *kInstallUpdatesOnExit = "install_updates_on_exit";
 } // namespace settings_keys
 
 // Brings any settings into range. Idempotent.

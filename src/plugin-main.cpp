@@ -41,6 +41,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "thumbnails.hpp"
 #include "ui-thread.hpp"
 #include "update-checker.hpp"
+#include "update-installer.hpp"
 
 #include <QDesktopServices>
 #include <QMessageBox>
@@ -77,6 +78,7 @@ struct PluginContext {
 	std::unique_ptr<FrontendEvents> events;
 	std::unique_ptr<RecordingEvents> recordings;
 	std::unique_ptr<UpdateChecker> updates;
+	std::unique_ptr<UpdateInstaller> installer;
 	std::unique_ptr<Hotkeys> hotkeys;
 	int settings_listener = 0;
 };
@@ -100,6 +102,9 @@ bool g_replay_started = false;
 // The clip browser. OBS owns the widget once it is added, and deletes it with the main window, so the plugin only looks
 // at it through this pointer, which clears itself when the dock is gone. The plugin never deletes it.
 QPointer<ClipDock> g_dock;
+
+// The update the banner is about, so a failed download can fall back to its release page. UI thread only.
+UpdateResult g_offered_update;
 
 // The save ids whose save sound has played, newest last. The files of one save are reported close together, so the
 // last kRememberedSaves ids are enough to recognise a second file of the same save. UI thread only.
@@ -219,25 +224,86 @@ void open_download_page(const std::string &url)
 		obs_log(LOG_WARNING, "could not open the download page: %s", url.c_str());
 }
 
-// A newer release was found: by the automatic check, or by the user choosing Download in the manual check. Shows the
-// dock's dismissible banner, whose button opens the download page. Nothing is shown once the plugin has stopped.
+// The dock's update banner for an update the user downloads by hand: its button opens the release page. Also where a
+// failed download ends up. Nothing is shown once the plugin has stopped.
+void show_download_banner(const UpdateResult &result)
+{
+	if (g_stopped || !g_dock || !g_dock->banners())
+		return;
+	const QString text =
+		QString::fromUtf8(obs_module_text("Update.Banner"))
+			.arg(QString::fromStdString(result.latest_version), QString::fromUtf8(PLUGIN_VERSION));
+	// The action keeps its own copy of the URL, because the result is gone once this call returns.
+	g_dock->banners()->show_banner(
+		BannerId::update_available, BannerKind::information, text,
+		QString::fromUtf8(obs_module_text("Update.Download")),
+		[url = result.download_url] {
+			if (!g_stopped)
+				open_download_page(url);
+		},
+		true);
+}
+
+// Whether `result` is installed as OBS closes rather than by hand: the setting is on, the release has an installer,
+// and this copy of the plugin is one the installer put there.
+bool installs_on_exit(const UpdateResult &result)
+{
+	PluginContext *ctx = g_context.get();
+	return !g_stopped && ctx && ctx->installer && result.installer &&
+	       settings_store().get().install_updates_on_exit && ctx->installer->supported();
+}
+
+// A newer release was found: by the automatic check, or by the user choosing Yes in the manual check. Downloads its
+// installer when installs_on_exit(), and the banner follows the download (on_installer_state()). Otherwise shows the
+// banner whose button opens the download page.
 void on_update_available(const UpdateResult &result)
+{
+	try {
+		if (g_stopped)
+			return;
+		g_offered_update = result;
+		PluginContext *ctx = g_context.get();
+		if (installs_on_exit(result) && ctx->installer->prepare(result))
+			return;
+		show_download_banner(result);
+	} catch (const std::exception &e) {
+		obs_log(LOG_ERROR, "update banner failed: %s", e.what());
+	} catch (...) {
+		obs_log(LOG_ERROR, "update banner failed: unknown exception");
+	}
+}
+
+// The installer download changed state. The banner says where it is: downloading, ready to install when OBS closes,
+// or, when the download failed, the release page to get it by hand.
+void on_installer_state(const InstallerStatus &status)
 {
 	try {
 		if (g_stopped || !g_dock || !g_dock->banners())
 			return;
-		const QString text =
-			QString::fromUtf8(obs_module_text("Update.Banner"))
-				.arg(QString::fromStdString(result.latest_version), QString::fromUtf8(PLUGIN_VERSION));
-		// The action keeps its own copy of the URL, because the result is gone once this call returns.
-		g_dock->banners()->show_banner(
-			BannerId::update_available, BannerKind::information, text,
-			QString::fromUtf8(obs_module_text("Update.Download")),
-			[url = result.download_url] {
-				if (!g_stopped)
-					open_download_page(url);
-			},
-			true);
+		const QString version = QString::fromStdString(status.version);
+		switch (status.state) {
+		case InstallerState::idle:
+			break;
+		case InstallerState::downloading:
+			g_dock->banners()->show_banner(
+				BannerId::update_available, BannerKind::information,
+				QString::fromUtf8(obs_module_text("Update.Downloading")).arg(version), {}, {}, true);
+			break;
+		case InstallerState::ready:
+			g_dock->banners()->show_banner(
+				BannerId::update_available, BannerKind::information,
+				QString::fromUtf8(obs_module_text("Update.Ready")).arg(version),
+				QString::fromUtf8(obs_module_text("Update.WhatsNew")),
+				[url = g_offered_update.download_url] {
+					if (!g_stopped)
+						open_download_page(url);
+				},
+				true);
+			break;
+		case InstallerState::failed:
+			show_download_banner(g_offered_update);
+			break;
+		}
 	} catch (const std::exception &e) {
 		obs_log(LOG_ERROR, "update banner failed: %s", e.what());
 	} catch (...) {
@@ -273,17 +339,22 @@ void show_update_result(const UpdateResult &result)
 			break;
 		}
 		case UpdateOutcome::update_available: {
+			// Asked before the box opens: the answer decides what Yes does.
+			const bool install = installs_on_exit(result);
+			const char *question = install ? "Update.AvailableInstall" : "Update.Available";
 			QMessageBox box(QMessageBox::Question, title,
-					QString::fromUtf8(obs_module_text("Update.Available"))
+					QString::fromUtf8(obs_module_text(question))
 						.arg(QString::fromStdString(result.latest_version),
 						     QString::fromUtf8(PLUGIN_VERSION)),
 					QMessageBox::Yes | QMessageBox::No, parent);
 			box.setTextFormat(Qt::PlainText);
 			box.setDefaultButton(QMessageBox::Yes);
-			const bool download = box.exec() == QMessageBox::Yes;
+			const bool yes = box.exec() == QMessageBox::Yes;
 			// The dialog runs its own event loop, so the plugin may have stopped while it was open.
-			if (download && !g_stopped) {
-				open_download_page(result.download_url);
+			if (yes && !g_stopped) {
+				// Downloading needs no page. Without it, the user downloads from the page.
+				if (!install)
+					open_download_page(result.download_url);
 				on_update_available(result);
 			}
 			break;
@@ -338,6 +409,9 @@ void stop_all()
 			// this point.
 			if (ctx->updates)
 				ctx->updates->stop();
+			// Keeps a ready installer for launch_pending_update(); a download still running is dropped.
+			if (ctx->installer)
+				ctx->installer->stop();
 			if (ctx->hotkeys)
 				ctx->hotkeys->stop();
 			// The dock first: it stops its own queue and makes its results do nothing, so nothing is left
@@ -356,6 +430,28 @@ void stop_all()
 		obs_log(LOG_ERROR, "stopping the plugin failed: %s", e.what());
 	} catch (...) {
 		obs_log(LOG_ERROR, "stopping the plugin failed: unknown exception");
+	}
+}
+
+// OBS_FRONTEND_EVENT_EXIT, after stop_all(): runs an installer that is downloaded and checked, unless the user turned
+// the setting off since. It waits for OBS to finish closing before it installs. Windows' permission prompt shows while
+// launch_ready() runs, which is why this happens only now, when nothing else needs the UI thread.
+void launch_pending_update()
+{
+	try {
+		PluginContext *ctx = g_context.get();
+		if (!ctx || !ctx->installer)
+			return;
+		if (!settings_store().get().install_updates_on_exit) {
+			if (ctx->installer->status().state == InstallerState::ready)
+				obs_log(LOG_INFO, "an update is ready, but installing on exit is off");
+			return;
+		}
+		ctx->installer->launch_ready();
+	} catch (const std::exception &e) {
+		obs_log(LOG_ERROR, "could not start the update: %s", e.what());
+	} catch (...) {
+		obs_log(LOG_ERROR, "could not start the update: unknown exception");
 	}
 }
 
@@ -461,8 +557,8 @@ void on_activity(const ActivityEvent &event)
 //   - OBS_FRONTEND_EVENT_PROFILE_CHANGED: the clip browser checks whether its folder or replay prefix changed, and the
 //     hotkey loads the new profile's binding.
 //   - OBS_FRONTEND_EVENT_THEME_CHANGED: the clip browser repaints its colours and icons from the new theme.
-//   - OBS_FRONTEND_EVENT_EXIT: OBS is shutting down. The plugin stops here. Objects are destroyed later, in
-//     obs_module_unload().
+//   - OBS_FRONTEND_EVENT_EXIT: OBS is shutting down. The plugin stops here, then starts a downloaded update's
+//     installer, which waits for OBS to close. Objects are destroyed later, in obs_module_unload().
 // Its private data is nullptr, which stays valid for the life of the process.
 void on_plugin_frontend_event(obs_frontend_event event, void *)
 {
@@ -532,6 +628,7 @@ void on_plugin_frontend_event(obs_frontend_event event, void *)
 		} else if (event == OBS_FRONTEND_EVENT_EXIT) {
 			g_exit_seen = true;
 			stop_all();
+			launch_pending_update();
 		}
 	} catch (const std::exception &e) {
 		obs_log(LOG_ERROR, "frontend event failed: %s", e.what());
@@ -564,6 +661,15 @@ void start_plugin()
 		obs_log(LOG_ERROR, "update check did not load: %s", e.what());
 	} catch (...) {
 		obs_log(LOG_ERROR, "update check did not load: unknown exception");
+	}
+	// Without it, updates are offered on the release page, as before.
+	try {
+		ctx.installer = std::make_unique<UpdateInstaller>();
+		ctx.installer->set_state_callback(on_installer_state);
+	} catch (const std::exception &e) {
+		obs_log(LOG_ERROR, "update install did not load: %s", e.what());
+	} catch (...) {
+		obs_log(LOG_ERROR, "update install did not load: unknown exception");
 	}
 	try {
 		ctx.hotkeys = std::make_unique<Hotkeys>(settings_store());

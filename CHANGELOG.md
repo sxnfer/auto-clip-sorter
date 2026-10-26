@@ -2,6 +2,16 @@
 
 All notable changes to Clip Atlas are listed here. The format follows Keep a Changelog.
 
+## [Unreleased]
+
+### Added
+
+- **Updates install themselves when you close OBS.** When a newer version is out, Clip Atlas downloads its installer
+  in the background, checks it against the SHA-256 checksum GitHub lists for it, and the dock's banner says it is
+  ready. After you close OBS, Windows asks for permission, and the installer updates Clip Atlas with only a progress
+  window. It works for copies installed with the installer; a copy from the zip still gets the release page. Turn it
+  off with **Download updates and install them when OBS closes** under **Updates** in Settings.
+
 ## [1.1.2] - 2026-10-26
 
 ### Added

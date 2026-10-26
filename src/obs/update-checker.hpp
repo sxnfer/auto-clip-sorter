@@ -8,8 +8,11 @@
 // obs_data_release(); NULL when the JSON is invalid): tag_name =
 // obs_data_get_string(d, "tag_name"), html_url = obs_data_get_string(d,
 // "html_url"), draft = obs_data_get_bool(d, "draft"), prerelease =
-// obs_data_get_bool(d, "prerelease"); a NULL object or an empty tag_name
-// gives ReleaseInfo nullopt. Then evaluate_update(error, status, release,
+// obs_data_get_bool(d, "prerelease"), and each object of
+// obs_data_get_array(d, "assets") (obs_data_array_count / obs_data_array_item,
+// each released) as a ReleaseAsset ("name", "browser_download_url", "size",
+// "state", "digest"); a NULL object or an empty tag_name gives ReleaseInfo
+// nullopt. Then evaluate_update(error, status, release,
 // PLUGIN_VERSION). Every check is logged at INFO (outcome and versions) or
 // WARNING (failed, with the error).
 //
