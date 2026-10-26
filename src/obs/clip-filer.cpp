@@ -319,9 +319,9 @@ bool ClipFiler::file(ClipKind kind, const std::vector<ClipFile> &files, const Cl
 		Save save;
 		save.kind = kind;
 		save.game = game;
-		save.dest = destination_dir(path_from_utf8(base), game.name,
-					    year_month_of(std::chrono::system_clock::now()),
-					    LayoutOptions{settings.monthly_folders, settings.unsorted_folder});
+		save.dest = destination_dir(
+			path_from_utf8(base), game.name, year_month_of(std::chrono::system_clock::now()),
+			LayoutOptions{settings.game_folders, settings.monthly_folders, settings.unsorted_folder});
 		save.id = g_next_save_id.fetch_add(1);
 
 		ActivityEvent accepted;

@@ -96,6 +96,19 @@ TEST_CASE("destination_dir routes unknown games to the unsorted folder")
 	CHECK(destination_dir("clips", "", {2026, 1}, opts) == fs::path("clips") / "Unsorted" / "2026-01");
 }
 
+TEST_CASE("destination_dir with game folders off is the base itself")
+{
+	LayoutOptions opts;
+	opts.game_folders = false;
+	fs::path base = "clips";
+	// Monthly folders are on, and still no <YYYY-MM> folder is made.
+	CHECK(destination_dir(base, "Fortnite", {2026, 10}, opts) == base);
+	CHECK(destination_dir(base, "", {2026, 10}, opts) == base);
+
+	opts.monthly_folders = false;
+	CHECK(destination_dir(base, "Fortnite", {2026, 10}, opts) == base);
+}
+
 TEST_CASE("unique_destination numbers collisions Windows-style")
 {
 	std::set<fs::path> taken;

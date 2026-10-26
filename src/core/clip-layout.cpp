@@ -132,6 +132,9 @@ std::filesystem::path path_from_utf8(const std::string &utf8)
 std::filesystem::path destination_dir(const std::filesystem::path &base, const std::string &game, YearMonth when,
 				      const LayoutOptions &options)
 {
+	// Months are only grouped inside a game folder: a <YYYY-MM> folder directly in <base> would be taken for a game.
+	if (!options.game_folders)
+		return base;
 	const std::string unsorted = sanitize_folder_name(options.unsorted_folder, "Unsorted");
 	std::filesystem::path dir = base / path_from_utf8(sanitize_folder_name(game, unsorted));
 	if (options.monthly_folders)

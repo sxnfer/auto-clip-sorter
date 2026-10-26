@@ -80,6 +80,8 @@ screenshots into per-game folders automatically, with no Python install and no s
 
 - **Monthly folders** (`YYYY-MM`) are on by default and can be turned off to keep each game
   folder flat. The numeric format sorts chronologically in Explorer.
+- **Game folders** can be turned off too. Every clip then goes straight into the clips folder,
+  with no game or month subfolders.
 - A clip's month is the local date it was saved.
 - File names are left as OBS created them. A clash becomes `Replay (2).mkv`.
 

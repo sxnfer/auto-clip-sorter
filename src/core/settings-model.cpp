@@ -166,7 +166,7 @@ std::vector<SettingsRecord> rules_to_records(const std::vector<GameRuleSetting> 
 
 bool Settings::operator==(const Settings &o) const
 {
-	return schema_version == o.schema_version && clips_folder == o.clips_folder &&
+	return schema_version == o.schema_version && clips_folder == o.clips_folder && game_folders == o.game_folders &&
 	       monthly_folders == o.monthly_folders && unsorted_folder == o.unsorted_folder &&
 	       auto_sort == o.auto_sort && sort_replays == o.sort_replays && sort_recordings == o.sort_recordings &&
 	       sort_screenshots == o.sort_screenshots && replay_auto_start == o.replay_auto_start &&
@@ -200,6 +200,7 @@ Settings load_settings(const SettingsReader &reader)
 	Settings settings;
 	read_int(reader, settings_keys::kSchemaVersion, settings.schema_version);
 	read_string(reader, settings_keys::kClipsFolder, settings.clips_folder);
+	read_bool(reader, settings_keys::kGameFolders, settings.game_folders);
 	read_bool(reader, settings_keys::kMonthlyFolders, settings.monthly_folders);
 	read_string(reader, settings_keys::kUnsortedFolder, settings.unsorted_folder);
 	read_bool(reader, settings_keys::kAutoSort, settings.auto_sort);
@@ -231,6 +232,7 @@ void save_settings(const Settings &settings, SettingsWriter &writer)
 	// Always the current version, because this build writes the format it understands.
 	writer.set_int(settings_keys::kSchemaVersion, Settings::kSchemaVersion);
 	writer.set_string(settings_keys::kClipsFolder, settings.clips_folder);
+	writer.set_bool(settings_keys::kGameFolders, settings.game_folders);
 	writer.set_bool(settings_keys::kMonthlyFolders, settings.monthly_folders);
 	writer.set_string(settings_keys::kUnsortedFolder, settings.unsorted_folder);
 	writer.set_bool(settings_keys::kAutoSort, settings.auto_sort);

@@ -2,6 +2,14 @@
 
 All notable changes to Clip Atlas are listed here. The format follows Keep a Changelog.
 
+## [Unreleased]
+
+### Added
+
+- **Sort clips into a folder for each game** in Settings. It is on by default, as before. Turn it off and every clip
+  goes straight into your clips folder, with no game or month folders. **Move to game** in the dock still makes the
+  game's folder, since you chose that game.
+
 ## [1.1.1] - 2026-10-24
 
 ### Fixed

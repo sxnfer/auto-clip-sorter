@@ -5,8 +5,9 @@
 // rest, the same way for every kind:
 //   1. dest = destination_dir(path_from_utf8(SettingsStore::effective_clips_folder()),
 //      game.name, year_month_of(system_clock::now()),
-//      {settings.monthly_folders, settings.unsorted_folder}), computed when
-//      file() is called.
+//      {settings.game_folders, settings.monthly_folders, settings.unsorted_folder}),
+//      computed when file() is called. With game folders off that is the
+//      clips folder itself.
 //   2. For each file, in order, on this filer's own `waits` FileMover (so a long
 //      wait never delays a move on the plugin's mover):
 //        - remuxed empty: wait_stable(file, 1 s, 30 s); stable or timed out

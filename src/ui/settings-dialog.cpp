@@ -86,11 +86,23 @@ SettingsDialog::SettingsDialog(SettingsStore &store, QWidget *parent) : QDialog(
 	folder_row->addWidget(browse);
 	clips_form->addRow(module_text("Settings.ClipsFolder"), folder_row);
 
+	game_folders_ = new QCheckBox(module_text("Settings.GameFolders"), this);
+	clips_form->addRow(game_folders_);
+
+	// Both only shape the inside of game folders. They sit in one container so a single setEnabled() greys the
+	// unsorted folder's label as well as its field.
+	auto *layout_details = new QWidget(this);
+	auto *layout_form = new QFormLayout(layout_details);
+	layout_form->setContentsMargins(0, 0, 0, 0);
+
 	monthly_folders_ = new QCheckBox(module_text("Settings.MonthlyFolders"), this);
-	clips_form->addRow(monthly_folders_);
+	layout_form->addRow(monthly_folders_);
 
 	unsorted_folder_ = new QLineEdit(this);
-	clips_form->addRow(module_text("Settings.UnsortedFolder"), unsorted_folder_);
+	layout_form->addRow(module_text("Settings.UnsortedFolder"), unsorted_folder_);
+	clips_form->addRow(layout_details);
+	// Disabled rather than hidden, and still saved, so turning game folders back on restores them.
+	connect(game_folders_, &QCheckBox::toggled, layout_details, &QWidget::setEnabled);
 
 	// What to sort (M2). The widgets are created in the order they appear, so Tab moves down the page.
 	auto *sort_box = new QGroupBox(module_text("Settings.WhatToSort"), this);
@@ -220,6 +232,7 @@ SettingsDialog::SettingsDialog(SettingsStore &store, QWidget *parent) : QDialog(
 	load(store_.get());
 	// toggled fires only when a box changes, so the enabled states are set from the loaded values here.
 	recording_dominant_game_->setEnabled(sort_recordings_->isChecked());
+	layout_details->setEnabled(game_folders_->isChecked());
 	sound_details->setEnabled(play_save_sound_->isChecked());
 }
 
@@ -228,6 +241,7 @@ void SettingsDialog::accept()
 	try {
 		Settings settings = store_.get();
 		settings.clips_folder = to_utf8(clips_folder_->text().trimmed());
+		settings.game_folders = game_folders_->isChecked();
 		settings.monthly_folders = monthly_folders_->isChecked();
 		// Not trimmed here: validated() runs sanitize_folder_name(), which trims it and turns an empty
 		// name into "Unsorted".
@@ -331,6 +345,7 @@ void SettingsDialog::load(const Settings &settings)
 	}
 	clips_folder_->setPlaceholderText(placeholder);
 
+	game_folders_->setChecked(settings.game_folders);
 	monthly_folders_->setChecked(settings.monthly_folders);
 	unsorted_folder_->setText(to_qstring(settings.unsorted_folder));
 	replay_auto_start_->setChecked(settings.replay_auto_start);

@@ -1359,9 +1359,11 @@ void ClipDock::Impl::move_clip(const ClipEntry &clip)
 		return;
 
 	const Settings settings = settings_.get();
+	// game_folders is always on: the user named a game, so it gets its folder even when new clips are not filed
+	// into game folders.
 	const std::filesystem::path dest =
 		destination_dir(base, name.toUtf8().toStdString(), year_month_of(clip.modified),
-				LayoutOptions{settings.monthly_folders, settings.unsorted_folder});
+				LayoutOptions{true, settings.monthly_folders, settings.unsorted_folder});
 	const std::weak_ptr<Shared> weak = shared_;
 	mover_.move(path, dest, [weak, path, kind](const MoveResult &result) {
 		// The mover calls this on its own thread, or on this one once it has shut down. Only plain values are

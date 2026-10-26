@@ -75,15 +75,15 @@ private:
 	}
 };
 
-// Every key save_settings() must write: the 20 constants in settings_keys.
+// Every key save_settings() must write: the 21 constants in settings_keys.
 const char *const kAllKeys[] = {
-	settings_keys::kPlaySaveSound,  settings_keys::kSaveSoundPath,      settings_keys::kSaveSoundVolume,
-	settings_keys::kSchemaVersion,  settings_keys::kClipsFolder,        settings_keys::kMonthlyFolders,
-	settings_keys::kUnsortedFolder, settings_keys::kAutoSort,           settings_keys::kSortReplays,
-	settings_keys::kSortRecordings, settings_keys::kSortScreenshots,    settings_keys::kReplayAutoStart,
-	settings_keys::kReplayAutoStop, settings_keys::kGracePeriodSeconds, settings_keys::kSourceSelection,
-	settings_keys::kChosenSources,  settings_keys::kUseProductName,     settings_keys::kRecordingDominantGame,
-	settings_keys::kGameRules,      settings_keys::kCheckForUpdates,
+	settings_keys::kGameFolders,           settings_keys::kPlaySaveSound,  settings_keys::kSaveSoundPath,
+	settings_keys::kSaveSoundVolume,       settings_keys::kSchemaVersion,  settings_keys::kClipsFolder,
+	settings_keys::kMonthlyFolders,        settings_keys::kUnsortedFolder, settings_keys::kAutoSort,
+	settings_keys::kSortReplays,           settings_keys::kSortRecordings, settings_keys::kSortScreenshots,
+	settings_keys::kReplayAutoStart,       settings_keys::kReplayAutoStop, settings_keys::kGracePeriodSeconds,
+	settings_keys::kSourceSelection,       settings_keys::kChosenSources,  settings_keys::kUseProductName,
+	settings_keys::kRecordingDominantGame, settings_keys::kGameRules,      settings_keys::kCheckForUpdates,
 };
 
 // Each entry moves one field away from its default and names the key that field is saved
@@ -95,6 +95,7 @@ struct FieldChange {
 
 const FieldChange kFieldChanges[] = {
 	{[](Settings &s) { s.clips_folder = "D:/Clips"; }, settings_keys::kClipsFolder},
+	{[](Settings &s) { s.game_folders = false; }, settings_keys::kGameFolders},
 	{[](Settings &s) { s.monthly_folders = false; }, settings_keys::kMonthlyFolders},
 	{[](Settings &s) { s.unsorted_folder = "Misc"; }, settings_keys::kUnsortedFolder},
 	{[](Settings &s) { s.auto_sort = false; }, settings_keys::kAutoSort},
@@ -120,6 +121,7 @@ Settings customised_settings()
 {
 	Settings s;
 	s.clips_folder = "D:/Clips/クリップ";
+	s.game_folders = false;
 	s.monthly_folders = false;
 	s.unsorted_folder = "Misc";
 	s.auto_sort = false;
@@ -198,6 +200,7 @@ TEST_CASE("defaults match the header and docs/PLAN.md")
 	Settings s;
 	CHECK(s.schema_version == Settings::kSchemaVersion);
 	CHECK(s.clips_folder.empty()); // empty means OBS's recording path
+	CHECK(s.game_folders);
 	CHECK(s.monthly_folders);
 	CHECK(s.unsorted_folder == "Unsorted");
 	CHECK(s.auto_sort);
@@ -322,10 +325,10 @@ TEST_CASE("mistyped values keep their defaults")
 	// Each key is stored under a type its getter does not read, so every getter returns nullopt.
 	FakeStore store;
 	for (const char *key :
-	     {settings_keys::kMonthlyFolders, settings_keys::kAutoSort, settings_keys::kSortReplays,
-	      settings_keys::kSortRecordings, settings_keys::kSortScreenshots, settings_keys::kReplayAutoStart,
-	      settings_keys::kReplayAutoStop, settings_keys::kUseProductName, settings_keys::kRecordingDominantGame,
-	      settings_keys::kCheckForUpdates, settings_keys::kPlaySaveSound})
+	     {settings_keys::kGameFolders, settings_keys::kMonthlyFolders, settings_keys::kAutoSort,
+	      settings_keys::kSortReplays, settings_keys::kSortRecordings, settings_keys::kSortScreenshots,
+	      settings_keys::kReplayAutoStart, settings_keys::kReplayAutoStop, settings_keys::kUseProductName,
+	      settings_keys::kRecordingDominantGame, settings_keys::kCheckForUpdates, settings_keys::kPlaySaveSound})
 		store.strings[key] = "false";
 	store.strings[settings_keys::kGracePeriodSeconds] = "3";
 	store.strings[settings_keys::kSaveSoundVolume] = "3";

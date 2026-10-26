@@ -2,6 +2,7 @@
 //
 // Layout:  <base>/<Game>/<YYYY-MM>/<original file name>
 //          <base>/<Game>/<original file name>          (monthly folders off)
+//          <base>/<original file name>                 (game folders off)
 //
 // Pure C++17 with no OBS dependency so it can be unit-tested in isolation.
 // All strings are UTF-8 (as OBS hands them to us).
@@ -15,6 +16,9 @@
 namespace clip_atlas {
 
 struct LayoutOptions {
+	// Group clips into a folder per game. Off: every clip goes straight into
+	// <base>, and monthly_folders and unsorted_folder have no effect.
+	bool game_folders = true;
 	// Group clips into <YYYY-MM> subfolders inside each game folder.
 	bool monthly_folders = true;
 	// Folder used when no game could be detected (e.g. desktop capture).
@@ -42,6 +46,7 @@ std::string sanitize_folder_name(const std::string &name, const std::string &fal
 std::filesystem::path path_from_utf8(const std::string &utf8);
 
 // Directory a clip belongs in. An empty `game` routes to the unsorted folder.
+// With game folders off it is always `base`.
 std::filesystem::path destination_dir(const std::filesystem::path &base, const std::string &game, YearMonth when,
 				      const LayoutOptions &options);
 
