@@ -65,6 +65,7 @@ private:
 
 	SettingsStore &store_;
 	QLineEdit *clips_folder_ = nullptr;
+	QCheckBox *game_folders_ = nullptr;
 	QCheckBox *monthly_folders_ = nullptr;
 	QLineEdit *unsorted_folder_ = nullptr;
 	QCheckBox *sort_replays_ = nullptr;

@@ -13,7 +13,7 @@ without friction and ships a modern UI built from OBS's own Qt interfaces.
 | Stack | C++17 + Qt 6, based on `obsproject/obs-plugintemplate` |
 | License | GPL-2.0-or-later (required because the plugin links libobs) |
 | Folder key | Game executable, shown with a friendly name |
-| Folder layout | `<base>/<Game>/<YYYY-MM>/<file>`, monthly folders on by default and optional |
+| Folder layout | `<base>/<Game>/<YYYY-MM>/<file>`, monthly folders on by default and optional; game folders on by default and optional (off: `<base>/<file>`) |
 | Replay Buffer | Auto start/stop on by default, 10 s grace period, only stops what it started |
 | Signing | Unsigned for now (document SmartScreen; SignPath Foundation later) |
 | Updates | Check GitHub Releases at most once a day; can be turned off |

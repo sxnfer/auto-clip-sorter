@@ -91,8 +91,10 @@
 //                           index().games() plus the current game's name,
 //                           minus the clip's own game_folder, sorted; a typed
 //                           name is allowed. dest = destination_dir(base, name,
-//                           year_month_of(clip.modified), {settings.monthly_folders,
-//                           settings.unsorted_folder}); the plugin's FileMover
+//                           year_month_of(clip.modified), {true (game folders
+//                           on, since the user named a game),
+//                           settings.monthly_folders, settings.unsorted_folder});
+//                           the plugin's FileMover
 //                           moves it (mover.move(path, dest, ...), result via
 //                           run_on_ui()). moved: remove the old row, upsert
 //                           describe_clip(final_path); copied_source_kept:

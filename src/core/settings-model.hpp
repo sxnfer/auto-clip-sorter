@@ -42,6 +42,7 @@ struct Settings {
 
 	// General
 	std::string clips_folder;    // empty: OBS's current recording path
+	bool game_folders = true;    // <Game>/ subfolders; off: clips stay directly in clips_folder
 	bool monthly_folders = true; // <Game>/<YYYY-MM>/ subfolders
 	std::string unsorted_folder = "Unsorted";
 	bool auto_sort = true; // master switch (dock header toggle)
@@ -109,6 +110,7 @@ public:
 namespace settings_keys {
 constexpr const char *kSchemaVersion = "schema_version";
 constexpr const char *kClipsFolder = "clips_folder";
+constexpr const char *kGameFolders = "game_folders";
 constexpr const char *kMonthlyFolders = "monthly_folders";
 constexpr const char *kUnsortedFolder = "unsorted_folder";
 constexpr const char *kAutoSort = "auto_sort";
